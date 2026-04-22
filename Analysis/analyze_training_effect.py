@@ -589,7 +589,7 @@ def plot_calibration_staircase(df: pd.DataFrame, output_dir: Path) -> List[Path]
 
             trials = range(1, len(side_data) + 1)
             offsets = side_data["EMSOffset_ms"].values
-            agencies = side_data["AgencyLikert"].values
+            agencies = side_data["AgencyYes"].values
             corrects = side_data["IsCorrect"].values
 
             # オフセット推移
@@ -600,7 +600,7 @@ def plot_calibration_staircase(df: pd.DataFrame, output_dir: Path) -> List[Path]
                 if not correct:
                     ax.plot(t, offset, 'x', color="red", markersize=8, zorder=5)
                 else:
-                    color = plt.cm.RdYlGn(agency / 7.0)  # 1=赤, 7=緑
+                    color = "green" if agency else "red"  # True=緑(Yes), False=赤(No)
                     ax.plot(t, offset, 'o', color=color, markersize=6, zorder=5)
 
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
@@ -622,8 +622,8 @@ def plot_calibration_staircase(df: pd.DataFrame, output_dir: Path) -> List[Path]
 
         # Offsetを5ms幅でビン化
         correct_cal["offset_bin"] = (correct_cal["EMSOffset_ms"] / 5).round() * 5
-        # ≥4 を「主体感あり」として割合を計算
-        correct_cal["agency_yes"] = (correct_cal["AgencyLikert"] >= 4).astype(int)
+        # Yes の割合を計算
+        correct_cal["agency_yes"] = correct_cal["AgencyYes"].astype(int)
 
         binned = correct_cal.groupby("offset_bin").agg(
             agency_rate=("agency_yes", "mean"),

@@ -20,8 +20,7 @@ namespace ReactionTest.Experiment
     }
 
     /// <summary>
-    /// 1試行のデータレコード（HDDM解析用CSV出力と1対1対応）
-    /// CSVヘッダー: SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyLikert,Timestamp
+    /// CSVヘッダー: SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyYes,Timestamp
     /// </summary>
     [Serializable]
     public class TrialRecord
@@ -62,8 +61,8 @@ namespace ReactionTest.Experiment
         /// </summary>
         public float EMSFireTimingMs;
 
-        /// <summary>Agency評価（1-7）。Calibrationフェーズのみ使用。未回答は0</summary>
-        public int AgencyLikert;
+        /// <summary>Agency評価（true=自分で押した、false=勝手に動いた）。Calibrationフェーズのみ使用</summary>
+        public bool AgencyYes;
 
         /// <summary>タイムスタンプ (ISO 8601)</summary>
         public string Timestamp;

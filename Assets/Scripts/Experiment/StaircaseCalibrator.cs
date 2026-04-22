@@ -36,9 +36,6 @@ namespace ReactionTest.Experiment
         // その近傍から開始して収束試行数を減らす。
         public const float INITIAL_OFFSET = 40f;  // ms
 
-        // Agency判定閾値: 7段階リッカートで ≥4 を「主体感あり(Yes)」とする
-        public const int AGENCY_THRESHOLD = 4;
-
         // ── 左右独立のステート ──
         private readonly StaircaseLadder _left;
         private readonly StaircaseLadder _right;
@@ -89,9 +86,9 @@ namespace ReactionTest.Experiment
         /// エラー試行・キャッチ試行は自動的にスキップされる。
         /// </summary>
         /// <param name="side">ターゲット側</param>
-        /// <param name="agencyLikert">7段階リッカート回答 (1-7)</param>
+        /// <param name="agencyYes">主体感があったか (Yes/No)</param>
         /// <param name="isCorrect">正答フラグ（falseなら更新しない）</param>
-        public void Update(UserAction side, int agencyLikert, bool isCorrect)
+        public void Update(UserAction side, bool agencyYes, bool isCorrect)
         {
             // エラー試行は破棄（Offset値や反転回数は一切更新しない）
             if (!isCorrect) return;
@@ -101,7 +98,6 @@ namespace ReactionTest.Experiment
             // 収束済みならダミー試行 → 更新しない
             if (ladder.IsConverged) return;
 
-            bool agencyYes = agencyLikert >= AGENCY_THRESHOLD;
             ladder.Update(agencyYes);
         }
 

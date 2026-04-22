@@ -1,82 +1,55 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace ReactionTest.Experiment
 {
     // ========================================================================
-    // V3: TaskType参照を削除（元々使用していないが、名前空間として依存していた）
-    // UI構造自体は変更なし
+    // V3: 2値（Yes/No）によるAgency評価UI
     // ========================================================================
 
     public class AgencySurveyUI : MonoBehaviour
     {
         [SerializeField] private CanvasGroup root;
-        [SerializeField] private List<Button> likertButtons = new List<Button>();
-        [SerializeField] private Text promptText;  // 通常のUI Text
+        [SerializeField] private Button yesButton;
+        [SerializeField] private Button noButton;
+        [SerializeField] private Text promptText;
 
         private void Awake()
         {
-            // 初期状態で非表示
             if (root != null)
             {
                 Show(false);
             }
-            else
-            {
-                Debug.LogWarning("AgencySurveyUI: root (CanvasGroup) is not assigned!");
-            }
         }
 
-        public IEnumerator AskAgency(Action<int> onAnswered)
+        public IEnumerator AskAgency(Action<bool> onAnswered)
         {
             Debug.Log("AgencySurveyUI: AskAgency called");
             
-            if (root == null)
+            if (root == null || yesButton == null || noButton == null)
             {
-                Debug.LogError("AgencySurveyUI: root (CanvasGroup) is null!");
-                onAnswered?.Invoke(4); // デフォルト値を返す
-                yield break;
-            }
-            
-            if (likertButtons == null || likertButtons.Count != 7)
-            {
-                Debug.LogError($"AgencySurveyUI: likertButtons invalid (count={likertButtons?.Count ?? 0}, expected 7)");
-                onAnswered?.Invoke(4);
+                Debug.LogError("AgencySurveyUI: Invalid setup. Root, yesButton, or noButton is missing.");
+                onAnswered?.Invoke(true); // default
                 yield break;
             }
 
             bool answered = false;
-            int answer = 4;
+            bool answer = false;
 
             if (promptText != null)
             {
-                promptText.text = "主体感はどの程度ありましたか？ (1: まったくない - 7: 非常に強い)";
+                promptText.text = "自分でボタンを押した感覚がありましたか？";
             }
 
-            Debug.Log("AgencySurveyUI: Showing UI");
+            yesButton.onClick.RemoveAllListeners();
+            noButton.onClick.RemoveAllListeners();
+
+            yesButton.onClick.AddListener(() => { answer = true; answered = true; });
+            noButton.onClick.AddListener(() => { answer = false; answered = true; });
+
             Show(true);
-
-            for (int i = 0; i < likertButtons.Count; i++)
-            {
-                int likertValue = i + 1;
-                Button b = likertButtons[i];
-                if (b == null)
-                {
-                    Debug.LogWarning($"AgencySurveyUI: likertButtons[{i}] is null");
-                    continue;
-                }
-
-                b.onClick.RemoveAllListeners();
-                b.onClick.AddListener(() =>
-                {
-                    answer = likertValue;
-                    answered = true;
-                    Debug.Log($"AgencySurveyUI: Button {likertValue} clicked");
-                });
-            }
 
             while (!answered)
             {
@@ -95,7 +68,6 @@ namespace ReactionTest.Experiment
             root.alpha = visible ? 1f : 0f;
             root.interactable = visible;
             root.blocksRaycasts = visible;
-            Debug.Log($"AgencySurveyUI: Show({visible}) - alpha={root.alpha}");
         }
     }
 }

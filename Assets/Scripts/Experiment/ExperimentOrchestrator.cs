@@ -472,11 +472,10 @@ namespace ReactionTest.Experiment
                     forcedTargetSide: side));
 
                 // ── 4. Agency回答（UIは常に表示） ──
-                int agencyAnswer = 4;
-                yield return StartCoroutine(agencySurveyUI.AskAgency(a =>
-                    agencyAnswer = Mathf.Clamp(a, 1, 7)));
+                bool agencyAnswer = false;
+                yield return StartCoroutine(agencySurveyUI.AskAgency(a => agencyAnswer = a));
 
-                record.AgencyLikert = agencyAnswer;
+                record.AgencyYes = agencyAnswer;
                 dataLogger.AppendTrial(record);
 
                 // ── 5. 階段更新 ──

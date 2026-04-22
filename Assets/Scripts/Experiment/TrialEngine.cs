@@ -216,7 +216,7 @@ namespace ReactionTest.Experiment
                 ReactionTimeMs = (float)reactionTimeMs,
                 EMSOffsetMs = emsDecision.OffsetMs,           // 速めたい量
                 EMSFireTimingMs = emsDecision.FireTimingMs,   // 実発火タイミング
-                AgencyLikert = 0,  // Calibrationフェーズ以外は0
+                AgencyYes = false, // Calibrationフェーズ以外は使われない
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
 
@@ -326,7 +326,7 @@ namespace ReactionTest.Experiment
                 ReactionTimeMs = (float)reactionTimeMs,
                 EMSOffsetMs = 0f,            // 刺激提示と同時にEMS発火するため概念的に0
                 EMSFireTimingMs = 0f,
-                AgencyLikert = 0,
+                AgencyYes = false,
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
 

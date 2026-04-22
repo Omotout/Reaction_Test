@@ -31,10 +31,9 @@ namespace ReactionTest.Experiment
         /// <summary>
         /// CSVヘッダー（HDDM解析用）
         /// EMSOffset_ms     : 速めたい量（= BaselineRTより何ms前倒しして押させたいか）
-        /// EMSFireTiming_ms : 実発火タイミング（= 刺激提示から何ms後にEMSを発火したか）
         /// </summary>
         private const string CsvHeader =
-            "SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyLikert,Timestamp";
+            "SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyYes,Timestamp";
 
         /// <summary>
         /// 従来の初期化（後方互換性用）
@@ -128,10 +127,9 @@ namespace ReactionTest.Experiment
                 row.TargetSide,
                 row.ResponseSide,
                 row.IsCorrect ? 1 : 0,
-                row.ReactionTimeMs.ToString("F3"),
                 row.EMSOffsetMs.ToString("F3"),
                 row.EMSFireTimingMs.ToString("F3"),
-                row.AgencyLikert,
+                row.AgencyYes ? 1 : 0,
                 row.Timestamp);
         }
 
