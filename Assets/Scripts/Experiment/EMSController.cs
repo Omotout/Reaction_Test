@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Ports;
 using System.Threading;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace ReactionTest.Experiment
 {
@@ -66,6 +68,18 @@ namespace ReactionTest.Experiment
         // 接続状態
         private bool _isConnected = false;
 
+        // ── 安全機構 ──
+        private readonly Stopwatch _refractoryWatch = Stopwatch.StartNew();
+        private long _lastFireMs = -1000;
+        private int _sessionFireCount = 0;
+        private bool _emergencyStopped = false;
+
+        [Header("Safety")]
+        [Tooltip("連続発火の最小間隔（ms）")]
+        [SerializeField] private int refractoryPeriodMs = 200;
+        [Tooltip("1セッションあたりの最大発火回数")]
+        [SerializeField] private int maxFiresPerSession = 500;
+
         public bool IsConnected => _isConnected;
         public bool IsEnabled => emsEnabled;
 
@@ -105,9 +119,10 @@ namespace ReactionTest.Experiment
         /// </summary>
         public void TriggerLeft()
         {
-            if (!emsEnabled) return;
+            if (!CanFire()) return;
+            RecordFire();
             EnqueueCommand("L");
-            Debug.Log("EMS Trigger: Left");
+            UnityEngine.Debug.Log($"EMS Trigger: Left (#{_sessionFireCount})");
         }
 
         /// <summary>
@@ -115,9 +130,51 @@ namespace ReactionTest.Experiment
         /// </summary>
         public void TriggerRight()
         {
-            if (!emsEnabled) return;
+            if (!CanFire()) return;
+            RecordFire();
             EnqueueCommand("R");
-            Debug.Log("EMS Trigger: Right");
+            UnityEngine.Debug.Log($"EMS Trigger: Right (#{_sessionFireCount})");
+        }
+
+        /// <summary>
+        /// 緊急停止: EMS即時無効化。Escキーから呼ばれる。
+        /// </summary>
+        public void EmergencyStop()
+        {
+            _emergencyStopped = true;
+            emsEnabled = false;
+            UnityEngine.Debug.LogError($"EMS: EMERGENCY STOP activated. Total fires this session: {_sessionFireCount}");
+        }
+
+        /// <summary>
+        /// 安全チェック: 不応期・最大発火回数・緊急停止
+        /// </summary>
+        private bool CanFire()
+        {
+            if (_emergencyStopped || !emsEnabled) return false;
+
+            if (_sessionFireCount >= maxFiresPerSession)
+            {
+                UnityEngine.Debug.LogError($"EMS: Session fire limit ({maxFiresPerSession}) reached. Disabling.");
+                emsEnabled = false;
+                return false;
+            }
+
+            long now = _refractoryWatch.ElapsedMilliseconds;
+            long elapsed = now - _lastFireMs;
+            if (elapsed < refractoryPeriodMs)
+            {
+                UnityEngine.Debug.LogWarning($"EMS: Refractory period ({elapsed}ms < {refractoryPeriodMs}ms). Blocked.");
+                return false;
+            }
+
+            return true;
+        }
+
+        private void RecordFire()
+        {
+            _lastFireMs = _refractoryWatch.ElapsedMilliseconds;
+            _sessionFireCount++;
         }
 
         /// <summary>

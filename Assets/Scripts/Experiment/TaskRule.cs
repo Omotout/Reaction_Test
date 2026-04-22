@@ -2,54 +2,49 @@ using UnityEngine;
 
 namespace ReactionTest.Experiment
 {
+    // ========================================================================
+    // V3: CRT固定化
+    // - TaskType引数を全メソッドから削除
+    // - 常にCRT（左右2択）として振る舞う
+    // - 刺激: 50%で左、50%で右
+    // - 正解: ターゲット側と同じ側をクリック
+    // ========================================================================
+
     public static class TaskRule
     {
-        public static StimulusColor PickStimulus(TaskType taskType)
+        /// <summary>
+        /// ターゲット側をランダムに決定（CRT: 左右50%）
+        /// </summary>
+        public static UserAction PickTargetSide()
         {
-            if (taskType == TaskType.SRT)
-            {
-                return StimulusColor.Green;
-            }
-
-            return Random.value < 0.5f ? StimulusColor.Green : StimulusColor.Red;
+            return Random.value < 0.5f ? UserAction.Left : UserAction.Right;
         }
 
-        public static UserAction GetExpectedAction(TaskType taskType, StimulusColor stimulusColor)
+        /// <summary>
+        /// 期待される応答を返す（CRT: ターゲットと同じ側）
+        /// </summary>
+        public static UserAction GetExpectedAction(UserAction targetSide)
         {
-            switch (taskType)
-            {
-                case TaskType.SRT:
-                    return UserAction.Left;
-                case TaskType.DRT:
-                    return stimulusColor == StimulusColor.Green ? UserAction.Left : UserAction.None;
-                case TaskType.CRT:
-                    return stimulusColor == StimulusColor.Green ? UserAction.Left : UserAction.Right;
-                default:
-                    return UserAction.None;
-            }
+            return targetSide;
         }
 
-        public static bool Evaluate(TaskType taskType, StimulusColor stimulusColor, UserAction actualAction, out ErrorType errorType)
+        /// <summary>
+        /// 応答を評価する
+        /// CRT固定のため Commission エラーは発生しない（常に左右どちらかを押す）
+        /// 【重要】エラー試行もデータとして記録する（DDM解析で必須）
+        /// </summary>
+        public static bool Evaluate(UserAction targetSide, UserAction actualAction, out ErrorType errorType)
         {
-            UserAction expectedAction = GetExpectedAction(taskType, stimulusColor);
-            bool isCorrect = expectedAction == actualAction;
-
-            if (isCorrect)
-            {
-                errorType = ErrorType.None;
-                return true;
-            }
-
-            if (expectedAction == UserAction.None && actualAction != UserAction.None)
-            {
-                errorType = ErrorType.Commission;
-                return false;
-            }
-
-            if (expectedAction != UserAction.None && actualAction == UserAction.None)
+            if (actualAction == UserAction.None)
             {
                 errorType = ErrorType.Omission;
                 return false;
+            }
+
+            if (actualAction == targetSide)
+            {
+                errorType = ErrorType.None;
+                return true;
             }
 
             errorType = ErrorType.WrongSide;

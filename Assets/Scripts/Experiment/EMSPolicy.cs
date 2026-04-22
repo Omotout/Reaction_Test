@@ -1,24 +1,28 @@
 namespace ReactionTest.Experiment
 {
-    /// <summary>
-    /// EMSタイミング決定ポリシー
-    /// 
-    /// オフセットの考え方:
-    /// - baselineRtMs: EMSなしでの平均反応時間（刺激→ボタン押下）
-    /// - agencyOffsetMs: ボタンフィードバックを速める量（正の値）
-    /// - emsLatencyMs: EMS発火→ボタン押下の遅延時間
-    /// - 実際のEMS発火タイミング = baselineRtMs - agencyOffsetMs - emsLatencyMs
-    /// 
-    /// 例: baselineRtMs=300ms, agencyOffsetMs=40ms, emsLatencyMs=50ms の場合
-    ///     EMS発火タイミング = 300 - 40 - 50 = 210ms（刺激提示から210ms後にEMS）
-    ///     実際のボタン押下 = 210 + 50 = 260ms
-    ///     速くなった量 = 300 - 260 = 40ms ✓
-    /// </summary>
+    // ========================================================================
+    // V3: CRT特化 + 左右別EMSレイテンシ対応
+    // - TaskType引数を削除
+    // - 発火タイミング = BaselineRT - Offset - EMSLatency（左右別）
+    //
+    // 例: BaselineRT=300ms, Offset=40ms, EMSLatency(Left)=50ms
+    //     → FireTiming = 300 - 40 - 50 = 210ms（刺激提示から210ms後にEMS）
+    //     → 実際のボタン押下 ≈ 210 + 50 = 260ms（BaselineRTより40ms速い）
+    // ========================================================================
+
     public static class EMSPolicy
     {
+        /// <summary>
+        /// Trainingフェーズ用: 群とターゲット側に応じたEMS決定
+        /// </summary>
+        /// <param name="group">実験群</param>
+        /// <param name="targetSide">ターゲット側（Left/Right）</param>
+        /// <param name="baselineRtMs">ベースライン反応時間（ms）</param>
+        /// <param name="agencyOffsetMs">Agency維持オフセット（= 速めたい量、ターゲット側に対応する値）</param>
+        /// <param name="emsLatencyMs">EMSレイテンシ（ターゲット側に対応する値）</param>
         public static EMSDecision ComputeDecision(
             GroupType group,
-            TaskType task,
+            UserAction targetSide,
             float baselineRtMs,
             float agencyOffsetMs,
             float emsLatencyMs)
@@ -26,13 +30,27 @@ namespace ReactionTest.Experiment
             switch (group)
             {
                 case GroupType.AgencyEMS:
-                    // EMSタイミング = ベースライン反応時間 - オフセット - EMSレイテンシ
-                    float emsTiming = baselineRtMs - agencyOffsetMs - emsLatencyMs;
-                    return new EMSDecision(true, emsTiming);
+                    float fireTiming = baselineRtMs - agencyOffsetMs - emsLatencyMs;
+                    return new EMSDecision(true, agencyOffsetMs, fireTiming);
                 case GroupType.Voluntary:
                 default:
-                    return new EMSDecision(false, 0f);
+                    return new EMSDecision(false, 0f, 0f);
             }
+        }
+
+        /// <summary>
+        /// Calibrationフェーズ用: 候補オフセットでのEMS発火タイミング計算
+        /// </summary>
+        /// <param name="baselineRtMs">ベースライン反応時間（ms、ターゲット側に対応する値）</param>
+        /// <param name="candidateOffsetMs">階段法の候補オフセット（= 速めたい量、ms）</param>
+        /// <param name="emsLatencyMs">EMSレイテンシ（ターゲット側に対応する値）</param>
+        public static EMSDecision ComputeCalibrationDecision(
+            float baselineRtMs,
+            float candidateOffsetMs,
+            float emsLatencyMs)
+        {
+            float fireTiming = baselineRtMs - candidateOffsetMs - emsLatencyMs;
+            return new EMSDecision(true, candidateOffsetMs, fireTiming);
         }
     }
 }

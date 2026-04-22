@@ -1,18 +1,40 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
 
 namespace ReactionTest.Experiment
 {
+    // ========================================================================
+    // V3: HDDM解析対応 + メモリバッファ方式
+    // - CSVヘッダーをHDDM仕様に厳格化
+    // - agency_log.csv を廃止、全データを trial_log.csv に統一
+    // - 毎試行のFile.AppendAllText を廃止 → メモリバッファ + フェーズ終了時一括書き出し
+    // - 360fps環境でのUpdate()内I/O負荷を回避
+    // - 【超重要】エラー試行も IsCorrect=0 として絶対に破棄しない
+    // ========================================================================
+
     public class DataLogger : MonoBehaviour
     {
         [SerializeField] private string trialFileName = "trial_log.csv";
-        [SerializeField] private string agencyFileName = "agency_log.csv";
+
+        [Tooltip("N試行ごとに自動Flush（クラッシュ時のデータ消失防止）。0で無効。")]
+        [SerializeField] private int autoFlushInterval = 10;
 
         private string _outputDir;
         private string _trialPath;
-        private string _agencyPath;
+
+        // メモリバッファ: フェーズ終了時に FlushBuffer() で一括書き出し
+        private readonly List<TrialRecord> _buffer = new List<TrialRecord>();
+
+        /// <summary>
+        /// CSVヘッダー（HDDM解析用）
+        /// EMSOffset_ms     : 速めたい量（= BaselineRTより何ms前倒しして押させたいか）
+        /// EMSFireTiming_ms : 実発火タイミング（= 刺激提示から何ms後にEMSを発火したか）
+        /// </summary>
+        private const string CsvHeader =
+            "SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyLikert,Timestamp";
 
         /// <summary>
         /// 従来の初期化（後方互換性用）
@@ -20,7 +42,7 @@ namespace ReactionTest.Experiment
         public void Initialize(SessionMeta session)
         {
             string outputFolderName = "ReactionTestLogs";
-            string dir = Path.Combine(Application.persistentDataPath, outputFolderName, 
+            string dir = Path.Combine(Application.persistentDataPath, outputFolderName,
                 session.SubjectId + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
             InitializeWithPath(session, dir);
         }
@@ -34,26 +56,17 @@ namespace ReactionTest.Experiment
             Directory.CreateDirectory(_outputDir);
 
             _trialPath = Path.Combine(_outputDir, trialFileName);
-            _agencyPath = Path.Combine(_outputDir, agencyFileName);
 
+            // CSVヘッダーを書き込み（ファイルが存在しない場合のみ）
             if (!File.Exists(_trialPath))
             {
-                File.WriteAllText(_trialPath,
-                    "phase,task,trial_index,stimulus_color,expected_action,actual_action,is_correct,error_type,reaction_time_ms,ems_enabled,ems_offset_ms,timestamp" + Environment.NewLine,
-                    Encoding.UTF8);
-            }
-
-            if (!File.Exists(_agencyPath))
-            {
-                File.WriteAllText(_agencyPath,
-                    "task,candidate_offset_ms,agency_likert_7,timestamp" + Environment.NewLine,
-                    Encoding.UTF8);
+                File.WriteAllText(_trialPath, CsvHeader + Environment.NewLine, Encoding.UTF8);
             }
 
             // セッション情報をsession_info.jsonとして保存
             SaveSessionInfo(session);
 
-            Debug.Log($"Log output directory: {_outputDir}");
+            Debug.Log($"DataLogger: Output directory = {_outputDir}");
         }
 
         private void SaveSessionInfo(SessionMeta session)
@@ -68,34 +81,74 @@ namespace ReactionTest.Experiment
             return _outputDir;
         }
 
+        /// <summary>
+        /// 試行データをメモリバッファに追加（ディスクI/O発生なし）
+        /// エラー試行も IsCorrect=false のまま必ず追加する
+        /// autoFlushInterval > 0 の場合、N試行ごとに自動Flush（クラッシュ保護）
+        /// </summary>
         public void AppendTrial(TrialRecord row)
         {
-            string line = string.Join(",",
-                row.Phase,
-                row.Task,
-                row.TrialIndex,
-                row.StimulusColor,
-                row.ExpectedAction,
-                row.ActualAction,
-                row.IsCorrect ? 1 : 0,
-                row.ErrorType,
-                row.ReactionTimeMs.ToString("F3"),
-                row.EMSEnabled ? 1 : 0,
-                row.EMSOffsetMs.ToString("F3"),
-                row.Timestamp);
+            _buffer.Add(row);
 
-            File.AppendAllText(_trialPath, line + Environment.NewLine, Encoding.UTF8);
+            if (autoFlushInterval > 0 && _buffer.Count >= autoFlushInterval)
+            {
+                FlushBuffer();
+            }
         }
 
-        public void AppendAgency(AgencyRecord row)
+        /// <summary>
+        /// バッファ内の全データをCSVに一括書き出し
+        /// フェーズ終了時に呼ぶこと
+        /// </summary>
+        public void FlushBuffer()
         {
-            string line = string.Join(",",
-                row.Task,
-                row.CandidateOffsetMs.ToString("F3"),
-                row.AgencyLikert7,
-                row.Timestamp);
+            if (_buffer.Count == 0) return;
 
-            File.AppendAllText(_agencyPath, line + Environment.NewLine, Encoding.UTF8);
+            var sb = new StringBuilder();
+            foreach (var row in _buffer)
+            {
+                sb.AppendLine(FormatTrialLine(row));
+            }
+
+            File.AppendAllText(_trialPath, sb.ToString(), Encoding.UTF8);
+            Debug.Log($"DataLogger: Flushed {_buffer.Count} trials to {_trialPath}");
+            _buffer.Clear();
+        }
+
+        /// <summary>
+        /// 1試行分のCSV行を生成
+        /// </summary>
+        private string FormatTrialLine(TrialRecord row)
+        {
+            return string.Join(",",
+                row.SubjectId,
+                row.Group,
+                row.Phase,
+                row.TrialNumber,
+                row.TargetSide,
+                row.ResponseSide,
+                row.IsCorrect ? 1 : 0,
+                row.ReactionTimeMs.ToString("F3"),
+                row.EMSOffsetMs.ToString("F3"),
+                row.EMSFireTimingMs.ToString("F3"),
+                row.AgencyLikert,
+                row.Timestamp);
+        }
+
+        /// <summary>
+        /// アプリケーション終了時にバッファを確実に書き出す
+        /// </summary>
+        private void OnApplicationQuit()
+        {
+            FlushBuffer();
+        }
+
+        /// <summary>
+        /// オブジェクト破棄時にもバッファを書き出す（安全弁）
+        /// </summary>
+        private void OnDestroy()
+        {
+            FlushBuffer();
         }
     }
 }

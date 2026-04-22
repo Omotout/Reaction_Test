@@ -6,31 +6,28 @@ using UnityEngine;
 
 namespace ReactionTest.Experiment
 {
-    /// <summary>
-    /// 被験者データ管理クラス
-    /// Subject IDごとにデータを保存・読み込み
-    /// 再実行時は session_1, session_2 のようにサブフォルダを作成
-    /// </summary>
+    // ========================================================================
+    // V3: CRT特化 — SRT/DRTフィールド完全削除、左右別オフセット対応
+    // - SubjectConfig: 左右別のAgencyオフセットとEMSレイテンシを保存
+    // - ExperimentRunMode依存を削除 → セッション名を "session_XX" に統一
+    // ========================================================================
+
     [Serializable]
     public class SubjectConfig
     {
         public string SubjectId;
         public GroupType Group;
-        public int LatestCalibrationSession;
-        public int LatestValidationSession;
+        public int LatestSessionNumber;
         public string LastUpdated;
-        
-        // 最新のキャリブレーション結果
-        public float SRT_Offset;
-        public float DRT_Offset;
-        public float CRT_Offset;
-        public float BaselineRT_SRT;
-        public float BaselineRT_DRT;
-        public float BaselineRT_CRT;
-        public float EMSLatency_SRT;
-        public float EMSLatency_DRT;
-        public float EMSLatency_CRT;
-        
+
+        // CRT用キャリブレーション結果（左右別）
+        public float AgencyOffsetLeft;
+        public float AgencyOffsetRight;
+        public float BaselineRTLeft;
+        public float BaselineRTRight;
+        public float EMSLatencyLeft;
+        public float EMSLatencyRight;
+
         // キャリブレーション完了フラグ
         public bool CalibrationCompleted;
     }
@@ -38,11 +35,11 @@ namespace ReactionTest.Experiment
     public class SubjectDataManager : MonoBehaviour
     {
         [SerializeField] private string dataFolderName = "ExperimentData";
-        
+
         private string _rootPath;
         private SubjectConfig _currentConfig;
         private string _currentSessionPath;
-        
+
         public SubjectConfig CurrentConfig => _currentConfig;
         public string CurrentSessionPath => _currentSessionPath;
         public string RootPath => _rootPath;
@@ -54,53 +51,65 @@ namespace ReactionTest.Experiment
             // Application.dataPath = {ProjectRoot}/Assets
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             _rootPath = Path.Combine(projectRoot, dataFolderName);
-            
+
             if (!Directory.Exists(_rootPath))
             {
                 Directory.CreateDirectory(_rootPath);
             }
-            
+
             Debug.Log($"SubjectDataManager: Data root = {_rootPath}");
         }
 
         /// <summary>
-        /// 被験者データを読み込み、なければ新規作成
+        /// 被験者データを読み込み、なければ新規作成。
+        /// 既存被験者の場合は保存済みGroupを優先し、Inspector値との不一致はエラーログを出す。
+        /// 群を変更したい場合は被験者フォルダを削除またはリネームして新規作成扱いにする。
         /// </summary>
-        public void LoadOrCreateSubject(string subjectId, GroupType group)
+        /// <returns>実際に採用された群（既存なら保存済み、新規ならInspector指定）</returns>
+        public GroupType LoadOrCreateSubject(string subjectId, GroupType group)
         {
             string subjectPath = GetSubjectPath(subjectId);
             string configPath = Path.Combine(subjectPath, "config.json");
 
             if (File.Exists(configPath))
             {
-                // 既存データを読み込み
                 string json = File.ReadAllText(configPath);
                 _currentConfig = JsonUtility.FromJson<SubjectConfig>(json);
-                _currentConfig.Group = group; // グループは更新可能
-                Debug.Log($"Loaded subject data: {subjectId} (Calibration: {_currentConfig.CalibrationCompleted})");
+
+                if (_currentConfig.Group != group)
+                {
+                    Debug.LogError(
+                        $"Group mismatch for {subjectId}: saved={_currentConfig.Group}, inspector={group}. " +
+                        $"Using SAVED group to preserve data integrity. " +
+                        $"To change groups, delete or rename the subject folder.");
+                }
+
+                Debug.Log($"Loaded subject data: {subjectId} " +
+                          $"(Group: {_currentConfig.Group}, Calibration: {_currentConfig.CalibrationCompleted})");
             }
             else
             {
-                // 新規作成
                 Directory.CreateDirectory(subjectPath);
                 _currentConfig = new SubjectConfig
                 {
                     SubjectId = subjectId,
                     Group = group,
-                    LatestCalibrationSession = 0,
-                    LatestValidationSession = 0,
+                    LatestSessionNumber = 0,
                     CalibrationCompleted = false,
                     LastUpdated = DateTime.Now.ToString("o")
                 };
                 SaveConfig();
-                Debug.Log($"Created new subject: {subjectId}");
+                Debug.Log($"Created new subject: {subjectId} (Group: {group})");
             }
+
+            return _currentConfig.Group;
         }
 
         /// <summary>
         /// 新しいセッションフォルダを作成
+        /// ExperimentRunMode廃止 → 統一的な "session_XX" 命名
         /// </summary>
-        public string CreateSessionFolder(ExperimentRunMode runMode)
+        public string CreateSessionFolder()
         {
             if (_currentConfig == null)
             {
@@ -109,23 +118,9 @@ namespace ReactionTest.Experiment
             }
 
             string subjectPath = GetSubjectPath(_currentConfig.SubjectId);
-            int sessionNum;
-            string prefix;
+            _currentConfig.LatestSessionNumber++;
 
-            if (runMode == ExperimentRunMode.Calibration || runMode == ExperimentRunMode.Full)
-            {
-                _currentConfig.LatestCalibrationSession++;
-                sessionNum = _currentConfig.LatestCalibrationSession;
-                prefix = "calibration";
-            }
-            else
-            {
-                _currentConfig.LatestValidationSession++;
-                sessionNum = _currentConfig.LatestValidationSession;
-                prefix = "validation";
-            }
-
-            string sessionFolder = $"{prefix}_{sessionNum:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
+            string sessionFolder = $"session_{_currentConfig.LatestSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
             _currentSessionPath = Path.Combine(subjectPath, sessionFolder);
             Directory.CreateDirectory(_currentSessionPath);
 
@@ -135,29 +130,29 @@ namespace ReactionTest.Experiment
         }
 
         /// <summary>
-        /// キャリブレーション結果を保存
+        /// キャリブレーション結果を保存（左右別）
         /// </summary>
         public void SaveCalibrationResult(
-            float srtOffset, float drtOffset, float crtOffset,
-            float baselineSRT, float baselineDRT, float baselineCRT,
-            float latencySRT, float latencyDRT, float latencyCRT)
+            float agencyOffsetLeft, float agencyOffsetRight,
+            float baselineRTLeft, float baselineRTRight,
+            float emsLatencyLeft, float emsLatencyRight)
         {
             if (_currentConfig == null) return;
 
-            _currentConfig.SRT_Offset = srtOffset;
-            _currentConfig.DRT_Offset = drtOffset;
-            _currentConfig.CRT_Offset = crtOffset;
-            _currentConfig.BaselineRT_SRT = baselineSRT;
-            _currentConfig.BaselineRT_DRT = baselineDRT;
-            _currentConfig.BaselineRT_CRT = baselineCRT;
-            _currentConfig.EMSLatency_SRT = latencySRT;
-            _currentConfig.EMSLatency_DRT = latencyDRT;
-            _currentConfig.EMSLatency_CRT = latencyCRT;
+            _currentConfig.AgencyOffsetLeft = agencyOffsetLeft;
+            _currentConfig.AgencyOffsetRight = agencyOffsetRight;
+            _currentConfig.BaselineRTLeft = baselineRTLeft;
+            _currentConfig.BaselineRTRight = baselineRTRight;
+            _currentConfig.EMSLatencyLeft = emsLatencyLeft;
+            _currentConfig.EMSLatencyRight = emsLatencyRight;
             _currentConfig.CalibrationCompleted = true;
             _currentConfig.LastUpdated = DateTime.Now.ToString("o");
 
             SaveConfig();
-            Debug.Log($"Saved calibration result for {_currentConfig.SubjectId}");
+            Debug.Log($"Saved calibration result for {_currentConfig.SubjectId} " +
+                      $"(OffsetL={agencyOffsetLeft}ms, OffsetR={agencyOffsetRight}ms, " +
+                      $"BaselineL={baselineRTLeft}ms, BaselineR={baselineRTRight}ms, " +
+                      $"LatencyL={emsLatencyLeft}ms, LatencyR={emsLatencyRight}ms)");
         }
 
         /// <summary>
@@ -172,15 +167,12 @@ namespace ReactionTest.Experiment
 
             return new AgencyOffsetConfig
             {
-                SRT = _currentConfig.SRT_Offset,
-                DRT = _currentConfig.DRT_Offset,
-                CRT = _currentConfig.CRT_Offset,
-                BaselineRT_SRT = _currentConfig.BaselineRT_SRT,
-                BaselineRT_DRT = _currentConfig.BaselineRT_DRT,
-                BaselineRT_CRT = _currentConfig.BaselineRT_CRT,
-                EMSLatency_SRT = _currentConfig.EMSLatency_SRT,
-                EMSLatency_DRT = _currentConfig.EMSLatency_DRT,
-                EMSLatency_CRT = _currentConfig.EMSLatency_CRT
+                OffsetLeft = _currentConfig.AgencyOffsetLeft,
+                OffsetRight = _currentConfig.AgencyOffsetRight,
+                BaselineRTLeft = _currentConfig.BaselineRTLeft,
+                BaselineRTRight = _currentConfig.BaselineRTRight,
+                EMSLatencyLeft = _currentConfig.EMSLatencyLeft,
+                EMSLatencyRight = _currentConfig.EMSLatencyRight
             };
         }
 
@@ -214,7 +206,7 @@ namespace ReactionTest.Experiment
 
             return Directory.GetDirectories(subjectPath)
                 .Select(Path.GetFileName)
-                .Where(name => name.StartsWith("calibration_") || name.StartsWith("validation_"))
+                .Where(name => name.StartsWith("session_"))
                 .OrderByDescending(name => name)
                 .ToList();
         }

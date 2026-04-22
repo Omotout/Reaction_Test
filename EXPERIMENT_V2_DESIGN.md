@@ -1,302 +1,173 @@
-# Reaction Test 実験設計（SRT/DRT/CRT + EMS研究）
+# Reaction Test 実験設計（CRT + EMS研究）
+
+> 旧称: EXPERIMENT_V2_DESIGN。現行実装は V3（CRT特化・6フェーズ連続実行・適応的階段法）。
 
 ## 1. 目的
-FPS_ReactionTest の基盤を活用し、次の3タスクで反応速度とEMS介入効果を検証する。
+Kasahara et al. (CHI'21) "Preserving Agency During EMS Training" の追試・拡張。
+EMS を「主体感（Agency）を維持できるギリギリのタイミング」で発火すると、訓練後に反応時間が短縮するかを検証する。
 
-- TaskA (SRT): 緑円が出たら左クリック（単純反応）
-- TaskB (DRT): 緑円は左クリック、赤円は無反応（弁別反応）
-- TaskC (CRT): 緑円は左クリック、赤円は右クリック（選択反応）
+タスクは **CRT（Choice Reaction Time = 左右2択）** に固定。
+- 刺激色 = 左（緑） / 右（赤）
+- 正解 = ターゲット側と同じボタンをクリック
 
-## 2. 実験全体フロー
+## 2. 実験フロー（1日・1ラン・6フェーズ連続実行）
 
-**本実験は1日で実施する。**
+1. **Practice** — 習熟。EMSなし。15試行（既定）。
+2. **Baseline** — HDDMベースライン。EMSなし。40試行（既定）。**左右別にIQRフィルタ → 平均で `BaselineRT_Left / Right` を算出**。
+3. **EMSLatency** — 視覚刺激なし。EMSを発火 → 被験者が筋収縮側のボタンを押すまでの遅延を測定。左右各15試行。IQRフィルタ → 平均で `EMSLatency_Left / Right` を算出。
+4. **Calibration** — Agency閾値の適応的階段法探索。最大80試行（収束時打ち切り）。左右独立の階段で、反転5回到達で収束。
+5. **Training** — 介入フェーズ。`AgencyEMS` 群はキャリブレーション済みのオフセットでEMS、`Voluntary` 群はEMSなし。40試行。
+6. **PostTest** — HDDM事後測定。EMSなし。40試行。
 
-### 実験1: キャリブレーション（個人別ベースライン取得）
-目的：個人ごとの反応時間を測定し、実験2で使用するEMSタイミングを決定するためのデータを収集する。
+全フェーズで Esc キーによる緊急停止可（EMS 即時無効化 + データ Flush）。
 
-1. ベースライン測定（EMSなし）
-   - TaskA/B/C を各30試行
-   - 反応時間とエラーをログに記録
-   - 出力: trial_log.csv（BaselineRT を含む）
+## 3. EMS発火タイミング
 
-2. EMSレイテンシ測定（EMSあり、0msオフセット）
-   - TaskA/B/C を各20試行
-   - 0msオフセットでEMS発火し、反応時間を測定
-   - EMS発火→ボタン押下の遅延時間を取得
-   - 出力: trial_log.csv（EMSLatency を含む）
-
-3. Agency探索（EMSあり）
-   - 各タスクで、EMSオフセットを -200ms から +100ms を 5ms 刻みで提示
-   - 各提示後に主体感を7段階リッカート（1〜7）で取得
-   - 出力: agency_log.csv
-
-4. **中間解析（Python）**
-   - 実験1終了後、analyze_agency.py を実行
-   - ベースラインRT: Baselineフェーズの平均反応時間（外れ値除去後）
-   - EMSレイテンシ: EMSLatencyフェーズの平均反応時間（外れ値除去後）
-   - **Agency閾値の決定（ロジスティック回帰法）**:
-     1. Agencyスコアを0-1に正規化: `(score - 1) / 6`
-     2. 各個人・各タスクでオフセット vs 正規化Agencyにロジスティック回帰をフィット
-     3. `Agency(x) = 1 / (1 + exp(-k * (x - x0)))`
-     4. Agency = 0.5 となるオフセット `x0` を最適オフセットとして採用
-   - 結果を agency_offset.json として保存
-
-### 実験2: 訓練と効果測定（対照実験）
-目的：実験1で同定したタイミングを用いて、反応速度向上効果を検証する。
-
-**前提条件**: 実験1の解析完了、agency_offset.json が存在すること
-
-1. 群割当
-   - Agency-EMS群: 実験1で同定した主体感維持タイミングでEMS
-   - Voluntary群: EMSなし（対照群）
-
-2. 訓練フェーズ
-   - TaskA → TaskB → TaskC の順
-   - 各タスク30試行
-   - 群に応じたEMSポリシーを適用
-
-3. 事後測定フェーズ
-   - 各タスク30試行（EMSなし）
-   - 訓練効果の測定
-
-## 3. EMSオフセットの計算方法
-
-### 概念
-システムでは「ボタンフィードバックを何ms速めるか」をオフセットとして指定する。
-EMSを発火してから実際にボタンが押されるまでには遅延（EMSレイテンシ）があるため、これを考慮して発火タイミングを計算する。
-
-### 計算式
+### 関係式
 ```
-EMS発火タイミング = ベースライン反応時間 - オフセット - EMSレイテンシ
+EMSFireTiming = BaselineRT(side) − EMSOffset − EMSLatency(side)
 ```
 
-- **ベースライン反応時間**: EMSなしでの平均反応時間（刺激→ボタン押下）
-- **オフセット**: ボタンフィードバックを速める量（正の値）
-- **EMSレイテンシ**: EMS発火→ボタン押下の遅延時間（0msオフセットで測定）
+- **EMSOffset**: 「BaselineRT より何ms前倒しして押させたいか」（= pre-emptive gain、速めたい量）
+- **EMSFireTiming**: 「刺激提示から何ms後に EMS を発火するか」（実装上の待機時間）
+- **EMSLatency**: EMS発火 → ボタン押下までの被験者の筋収縮遅延（左右別）
+- **BaselineRT**: EMSなしでの反応時間（左右別）
 
 ### 例
-- ベースライン反応時間: 300ms
-- EMSレイテンシ: 50ms（0msオフセットでEMS発火した時の応答時間）
-- オフセット: 40ms（ボタンフィードバックを40ms速めたい）
+BaselineRT_Left=300ms, EMSOffset=40ms, EMSLatency_Left=50ms
+→ FireTiming = 300 − 40 − 50 = **210ms**（刺激提示から210ms後にEMS）
+→ 実際のボタン押下 ≈ 210 + 50 = 260ms（BaselineRTより40ms速い）
 
-計算:
-- EMS発火タイミング = 300 - 40 - 50 = **210ms**（刺激提示から210ms後にEMS発火）
-- 実際のボタン押下 = 210 + 50 = 260ms
-- 速くなった量 = 300 - 260 = 40ms ✓
+## 4. キャリブレーション（階段法）
 
-### agency_offset.json の形式
-```json
-{
-  "SRT": 40.0,              // 主体感維持オフセット（速める量）
-  "DRT": 35.0,
-  "CRT": 30.0,
-  "BaselineRT_SRT": 280.0,  // ベースライン反応時間（EMSなし）
-  "BaselineRT_DRT": 320.0,
-  "BaselineRT_CRT": 350.0,
-  "EMSLatency_SRT": 50.0,   // EMSレイテンシ（0msオフセット時の応答時間）
-  "EMSLatency_DRT": 55.0,
-  "EMSLatency_CRT": 60.0
-}
-```
+`StaircaseCalibrator` による左右独立の適応的インターリーブ階段。
 
-## 4. 1日実験のワークフロー
+- **初期オフセット**: 40ms（先行研究の Agency 閾値近傍）
+- **Agency判定**: 7段階リッカートで ≥4 を Yes とする
+- **更新則**: Yes → offset をマイナス方向（より速いEMS = 難しく） / No → プラス方向
+- **ステップ幅**: 反転0-1回→10ms / 2-3回→5ms / 4回以上→3ms
+- **収束条件**: 左右それぞれ反転5回到達
+- **最終値**: 反転時のオフセット値の平均
+- **ターゲット側選択**: 両側未収束なら50/50ランダム、**片側収束後は未収束側を確定選択**（残試行を浪費しない）
+- **エラー試行**: Agency回答は無効扱いで階段更新をスキップ
+- **最大試行数**: 80（未収束時は現在値を採用し警告ログ）
+
+## 5. データ保存
+
+被験者データは `<プロジェクトルート>/ExperimentData/<SubjectID>/` に保存される。
 
 ```
-[実験1: キャリブレーション]
-    │
-    ├── ベースライン測定 (EMSなし, 各タスク30試行)
-    │      ↓
-    ├── EMSレイテンシ測定 (0msオフセット, 各タスク20試行)
-    │      ↓
-    ├── Agency探索 (EMS提示 + 主体感評価)
-    │      ↓
-    └── CSV出力: trial_log.csv, agency_log.csv
-           │
-           ↓
-[中間解析: Python]
-    │
-    ├── analyze_agency.py 実行
-    ├── ベースラインRT算出（Baselineフェーズから）
-    ├── EMSレイテンシ算出（EMSLatencyフェーズから）
-    ├── 推奨オフセット算出（Agency探索から）
-    └── agency_offset.json 出力
-           │
-           ↓
-[実験2: 訓練・測定]
-    │
-    ├── agency_offset.json 読み込み
-    ├── 訓練フェーズ (群別EMS適用)
-    └── 事後測定フェーズ (EMSなし)
+ExperimentData/
+├── P001/
+│   ├── config.json                       ← 被験者設定（群・キャリブレーション結果）
+│   ├── session_01_20260422_100000/
+│   │   ├── session_info.json
+│   │   └── trial_log.csv
+│   └── session_02_.../
+└── P002/
+    └── ...
 ```
 
-## 5. 実装構成（FPS_ReactionTestから移植予定）
+### config.json (SubjectConfig)
 
-FPS_ReactionTest から以下の機能を移植:
-- シリアル通信によるEMS制御（Arduino連携）
-- 高精度タイマー（Stopwatch）による反応時間計測
-- CSV保存機能
+| フィールド | 説明 |
+|----|----|
+| `SubjectId` | 被験者ID |
+| `Group` | 実験群（`AgencyEMS` / `Voluntary`）。**既存被験者の群は保存値が優先される**（Inspector値と不一致の場合はエラーログ） |
+| `LatestSessionNumber` | 最新セッション番号 |
+| `AgencyOffsetLeft / Right` | 階段法で同定した左右別 Agency維持オフセット (ms) |
+| `BaselineRTLeft / Right` | 左右別ベースライン反応時間 (ms) |
+| `EMSLatencyLeft / Right` | 左右別 EMS応答レイテンシ (ms) |
+| `CalibrationCompleted` | キャリブレーション完了フラグ |
+| `LastUpdated` | 最終更新日時 (ISO 8601) |
 
-現在の責務分離設計:
-- ExperimentOrchestrator: フェーズ遷移、群割当、実験進行
-- TrialEngine: 1試行のステート制御（待機、刺激提示、入力監視、RT計測）
-- TaskRule: A/B/C の正解条件と反応判定
-- EMSPolicy: 群ごとのEMSタイミング決定
-- AgencySurveyUI: 主体感アンケート表示・回答収集
-- DataLogger: セッション・トライアル・アンケートの保存
+### trial_log.csv
 
-## 6. 推奨データモデル
+1試行 = 1行。Agency回答も同じ行に統合済み（別ファイル `agency_log.csv` は廃止）。
 
-### 列挙型
-- TaskType: SRT, DRT, CRT
-- GroupType: AgencyEMS, Voluntary
-- PhaseType: Baseline, AgencySearch, Training, PostTest
-- StimulusColor: Green, Red
+| 列名 | 説明 |
+|----|----|
+| `SubjectID` | 被験者ID |
+| `Group` | `AgencyEMS` / `Voluntary` |
+| `Phase` | `Practice` / `Baseline` / `EMSLatency` / `Calibration` / `Training` / `PostTest` |
+| `TrialNumber` | フェーズ内の試行番号（1-indexed） |
+| `TargetSide` | `Left` / `Right`（EMSLatencyフェーズではEMS発火チャンネル） |
+| `ResponseSide` | `Left` / `Right` / `None`（タイムアウト） |
+| `IsCorrect` | `1` / `0`（エラー試行も必ず記録） |
+| `ReactionTime_ms` | 反応時間。タイムアウト時は -1 |
+| `EMSOffset_ms` | **速めたい量**（pre-emptive gain）。Calibrationでは候補値、Trainingでは確定値、EMSなしは 0 |
+| `EMSFireTiming_ms` | **実発火タイミング**（刺激提示から何ms後に発火したか）。EMSなしは 0 |
+| `AgencyLikert` | 主体感評価 1〜7。Calibration以外は 0 |
+| `Timestamp` | ISO 8601 |
 
-### 主要レコード
-- SessionMeta
-  - subject_id
-  - group
-  - datetime_start
-  - app_version
-- TrialRecord
-  - phase
-  - task
-  - trial_index
-  - stimulus_color
-  - expected_action (Left/Right/None)
-  - actual_action (Left/Right/None)
-  - is_correct
-  - reaction_time_ms
-  - ems_enabled
-  - ems_offset_ms
-  - timestamp
-- AgencyRecord
-  - task
-  - candidate_offset_ms
-  - agency_likert_7 (1..7)
+### 型・Enum
 
-## 6. 反応判定仕様（タスク別）
+| 名称 | 値 |
+|----|----|
+| `GroupType` | `AgencyEMS`, `Voluntary` |
+| `PhaseType` | `Practice`, `Baseline`, `EMSLatency`, `Calibration`, `Training`, `PostTest` |
+| `UserAction` | `None`, `Left`, `Right` |
+| `ErrorType` | `None`, `WrongSide`, `Omission`（Commissionは廃止） |
 
-- TaskA (SRT)
-  - 刺激: 緑のみ
-  - 正解: 左クリック
-- TaskB (DRT)
-  - 刺激: 緑/赤
-  - 正解: 緑は左クリック、赤は無反応
-- TaskC (CRT)
-  - 刺激: 緑/赤
-  - 正解: 緑は左クリック、赤は右クリック
+## 6. 実装構成
 
-ミス分類（分析用）
-- commission error（押してはいけない時に押した）
-- omission error（押すべき時に押さなかった）
-- wrong-side error（左右誤り）
+| コンポーネント | 責務 |
+|----|----|
+| `ExperimentOrchestrator` | 6フェーズ連続実行、群別ロジック、緊急停止 |
+| `TrialEngine` | 1試行の制御（刺激表示、入力監視、RT計測、EMS発火ディスパッチ） |
+| `TaskRule` | CRT正解判定、ターゲット側ランダム選択 |
+| `EMSPolicy` | EMS発火タイミング計算（`BaselineRT − Offset − EMSLatency`） |
+| `StaircaseCalibrator` | 左右独立の適応的階段法 |
+| `AgencySurveyUI` | 7段階リッカートUI |
+| `DataLogger` | `trial_log.csv` へのメモリバッファ + フェーズ終了時Flush |
+| `SubjectDataManager` | 被験者フォルダ・config.json・セッションフォルダ管理 |
+| `EMSController` | Arduino DUE + L298N シリアル通信、安全機構（不応期・最大発火回数・緊急停止） |
+| `PhaseTransitionUI` | フェーズ間案内表示 |
 
-## 7. 外れ値除去仕様
+## 7. 外れ値除去
 
-推奨（既存分析と整合、Kasahara et al. CHI'21 準拠）
+### Unity 側（BaselineRT / EMSLatency 算出時）
+- IQR法: `[Q1 − 1.5·IQR, Q3 + 1.5·IQR]` 外を除外 → **平均**
+- データ4件未満は単純平均にフォールバック
+
+### Python 側（解析時）
 - 生理制約: 100ms未満、1000ms超を除外
-- IQR法: [Q1 - 1.5IQR, Q3 + 1.5IQR] 外を除外
-- 各セッション最初の2試行は除外（集中力安定のため）
-
-除外後の中央値を RT とする。
+- 正解試行のみから中央値を算出（RT Gain 計算用）
 
 ## 8. 統計解析
 
-### 8.1 Agency解析（実験1: キャリブレーション）
+スクリプト: `Analysis/analyze_training_effect.py`
 
-スクリプト: `analyze_agency.py`
+### 従来解析
+- **RT Gain** = `median(PostTest_RT) − median(Baseline_RT)`（正解試行のみ、負値 = 速くなった）
+- 独立t検定（AgencyEMS vs Voluntary）+ Cohen's d
+- One-sample t検定（各群の Gain vs 0）
+- BH-FDR 多重比較補正
+- ベイズファクター BF10（pingouin利用可能時）
 
-出力:
-- Preemptive gainごとの主体感平均（SEM付き）
-- 一元配置ANOVA
-- 多重比較（Tukey HSD）
-- agency_offset.json（個人別オフセット）
+### HDDM 解析
+- ベイズ推定で DDM パラメータ a（決定閾値）/ v（ドリフト率）/ t（非決定時間）を分離
+- Baseline vs PostTest の a, t の変化を群間比較
+- **注意**: 現行実装は PyMC + 正規分布近似のスケルトン。本格運用時は Wiener first-passage time 尤度（HSSM等）への置き換えが必要。
 
-### 8.2 訓練効果解析（実験2: Validation）
+### 仮説
+- H1: AgencyEMS 群は Voluntary 群より大きな RT 短縮を示す
+- H2: Baseline → PostTest で t（非決定時間）が短縮する
+- H3: a（決定閾値）は群間で差がない（慎重さではなく運動効率の変化）
 
-スクリプト: `analyze_training_effect.py`
+### 必要サンプルサイズ
+効果量 f = 0.3、α = 0.05、Power = 0.80 → 各群18名 × 2群 = **36名**
 
-**実験デザイン**:
-- 被験者間要因: 群（AgencyEMS vs Voluntary）
-- 被験者内要因: タスク（SRT vs DRT vs CRT）
-- 従属変数: RT Gain = PostTest_RT - Baseline_RT
+### 参考文献
+- Kasahara, S., et al. (2021). *Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly After Removing EMS.* CHI '21.
 
-**必要サンプルサイズ**:
-- 効果量 f = 0.3（中〜大）想定
-- α = 0.05, Power = 0.80
-- **各群18名 × 2群 = 計36名**
+## 9. 妥当性確認チェックリスト
 
-**分析手順** (Kasahara et al. CHI'21 準拠):
-
-1. **RT Gain計算**
-   - 各被験者×タスクごとに: Gain = median(PostTest_RT) - median(Baseline_RT)
-   - 負の値 = 速くなった
-
-2. **正規性検定**
-   - Shapiro-Wilk検定（各条件で実施）
-   - 非正規の場合はノンパラメトリック検定を検討
-
-3. **2×3 混合計画ANOVA**
-   - 主効果: 群、タスク
-   - 交互作用: 群×タスク
-   - ライブラリ: pingouin
-
-4. **事後検定**
-   - 各タスクでの群間比較（独立t検定、Bonferroni補正）
-   - 各群内でのタスク間比較（対応ありt検定）
-
-5. **one-sample t検定**
-   - 各条件でのGain vs 0 の検定
-   - 有意ならば「速くなった」と結論
-
-6. **効果量**
-   - Cohen's d を算出（群間比較）
-   - 0.2=小, 0.5=中, 0.8=大
-
-**仮説**:
-- H1: AgencyEMS群はVoluntary群より大きなRT短縮を示す
-- H2: 効果はタスク複雑性（SRT > DRT > CRT）で異なる
-- H3: 群×タスクの交互作用が見られる
-
-**参考文献**:
-- Kasahara, S., et al. (2021). Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly After Removing EMS. CHI '21.
-  - SRTで約8ms（最大20ms）の短縮効果
-  - Agency維持が効果の鍵
-
-## 9. 実装ステップ（最短）
-
-1. FPS_ReactionTestからEMS制御を移植
-   - SerialPort通信クラス
-   - EMSConfig送信機能
-
-2. 入力方式をクリック判定に対応
-   - 左右クリックを直接取得
-
-3. TaskRule を導入
-   - タスクごとに刺激生成と正解判定を切替
-
-4. AgencyアンケートUI実装
-   - 7段階リッカートを回答
-   - 回答とオフセットを保存
-
-5. データ保存をCSV2系統へ
-   - trial_log.csv（試行単位）
-   - agency_log.csv（アンケート単位）
-
-6. Python解析追加
-   - analyze_agency.py: キャリブレーション解析
-   - analyze_training_effect.py: 訓練効果解析（混合ANOVA）
-
-7. 訓練・測定ループ実装
-   - 群ごとに EMSPolicy を適用
-   - 各タスク30試行で固定
-
-## 10. 妥当性確認チェックリスト
-- タスクA/B/Cで正解判定が仕様通りか
-- TaskB赤刺激で無反応が正解として記録されるか
-- 外れ値除去後に n が想定より過少になっていないか
-- 群ごとのEMSポリシーが混線していないか
-- 30試行完了で必ず保存されるか
-- agency_offset.json が正しく読み込まれるか
-- EMSタイミング = BaselineRT - Offset - EMSLatency が正しく計算されているか
+- [ ] CRT 左右反応の正解判定が正しいか（緑=左、赤=右）
+- [ ] エラー試行が `IsCorrect=0` として必ず記録されるか
+- [ ] 外れ値除去後に n が想定より過少になっていないか
+- [ ] 群別の EMS ポリシーが混線していないか（Voluntary群で EMS が発火していないか）
+- [ ] `EMSFireTiming_ms = BaselineRT − EMSOffset − EMSLatency`（左右別）が正しく計算されているか
+- [ ] 既存被験者の Group が Inspector 値で上書きされていないか（config.json の `Group` を確認）
+- [ ] Calibration が収束しているか（反転5回/側、未収束時の警告ログ）
+- [ ] Esc 中断後に `trial_log.csv` が記録途中まで残っているか

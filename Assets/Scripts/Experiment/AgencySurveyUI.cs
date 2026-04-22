@@ -6,6 +6,11 @@ using UnityEngine.UI;
 
 namespace ReactionTest.Experiment
 {
+    // ========================================================================
+    // V3: TaskType参照を削除（元々使用していないが、名前空間として依存していた）
+    // UI構造自体は変更なし
+    // ========================================================================
+
     public class AgencySurveyUI : MonoBehaviour
     {
         [SerializeField] private CanvasGroup root;
