@@ -51,6 +51,9 @@ namespace ReactionTest.Experiment
         // 高精度タイマー
         private Stopwatch _reactionStopwatch = new Stopwatch();
 
+        // 発火予約中のEMS Coroutineハンドル（試行終了時に必ずStopして次試行への持ち越しを防ぐ）
+        private Coroutine _emsDispatchCoroutine;
+
         // 緊急停止フラグ
         private bool _isAborted = false;
         public bool IsAborted => _isAborted;
@@ -154,7 +157,7 @@ namespace ReactionTest.Experiment
 
             if (emsDecision.Enabled)
             {
-                StartCoroutine(DispatchEMS(emsDecision.FireTimingMs, targetSide));
+                _emsDispatchCoroutine = StartCoroutine(DispatchEMS(emsDecision.FireTimingMs, targetSide));
             }
 
             UserAction action = UserAction.None;
@@ -196,6 +199,9 @@ namespace ReactionTest.Experiment
 
             _reactionStopwatch.Stop();
             stimulusImage.gameObject.SetActive(false);
+
+            // 予約済みEMS発火コルーチンを停止し、次試行/次フェーズへの持ち越しを防ぐ
+            CancelPendingEMSDispatch();
 
             bool isCorrect = TaskRule.Evaluate(targetSide, action, out ErrorType errorType);
 
@@ -367,6 +373,20 @@ namespace ReactionTest.Experiment
             yield return new WaitForSeconds(feedbackDurationSec);
 
             feedbackText.gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// 予約中のEMS発火コルーチンを停止する。
+        /// 被験者が早期に反応した場合や緊急停止時に、待機中の通電予約が次試行へ
+        /// 持ち越されるのを防ぐ。
+        /// </summary>
+        private void CancelPendingEMSDispatch()
+        {
+            if (_emsDispatchCoroutine != null)
+            {
+                StopCoroutine(_emsDispatchCoroutine);
+                _emsDispatchCoroutine = null;
+            }
         }
 
         /// <summary>

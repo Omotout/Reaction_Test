@@ -115,23 +115,37 @@ namespace ReactionTest.Experiment
         }
 
         /// <summary>
-        /// 1試行分のCSV行を生成
+        /// 1試行分のCSV行を生成（RFC 4180 準拠エスケープ）
         /// </summary>
         private string FormatTrialLine(TrialRecord row)
         {
             return string.Join(",",
-                row.SubjectId,
-                row.Group,
-                row.Phase,
-                row.TrialNumber,
-                row.TargetSide,
-                row.ResponseSide,
-                row.IsCorrect ? 1 : 0,
-                row.ReactionTimeMs.ToString("F3"),
-                row.EMSOffsetMs.ToString("F3"),
-                row.EMSFireTimingMs.ToString("F3"),
-                row.AgencyYes ? 1 : 0,
-                row.Timestamp);
+                CsvEscape(row.SubjectId),
+                CsvEscape(row.Group.ToString()),
+                CsvEscape(row.Phase.ToString()),
+                row.TrialNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                CsvEscape(row.TargetSide.ToString()),
+                CsvEscape(row.ResponseSide.ToString()),
+                row.IsCorrect ? "1" : "0",
+                row.ReactionTimeMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                row.EMSOffsetMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                row.EMSFireTimingMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                row.AgencyYes ? "1" : "0",
+                CsvEscape(row.Timestamp));
+        }
+
+        /// <summary>
+        /// RFC 4180 準拠の CSV フィールドエスケープ。
+        /// 値にカンマ、ダブルクオート、改行が含まれる場合は値全体をダブルクオートで
+        /// 囲み、内部のダブルクオートは 2 連化する。被験者IDや自由記述が将来的に
+        /// 拡張されても列崩れが起きないようにする。
+        /// </summary>
+        private static string CsvEscape(string value)
+        {
+            if (value == null) return string.Empty;
+            bool needsQuoting = value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0;
+            if (!needsQuoting) return value;
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
         /// <summary>

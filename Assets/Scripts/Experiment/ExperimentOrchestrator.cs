@@ -133,15 +133,21 @@ namespace ReactionTest.Experiment
 
         /// <summary>
         /// 試行後にabort状態をチェック → trueなら呼び出し元でyield breakすること
+        /// TrialEngine だけでなく AgencySurveyUI の Escape/タイムアウトも監視する。
         /// </summary>
         private void CheckAbortState()
         {
-            if (trialEngine.IsAborted && !_experimentAborted)
+            bool trialAbort = trialEngine != null && trialEngine.IsAborted;
+            bool surveyAbort = agencySurveyUI != null && agencySurveyUI.IsAborted;
+
+            if ((trialAbort || surveyAbort) && !_experimentAborted)
             {
                 _experimentAborted = true;
                 if (emsController != null) emsController.EmergencyStop();
                 dataLogger.FlushBuffer();
-                Debug.LogError("EXPERIMENT ABORTED by user (Escape key).");
+                Debug.LogError(surveyAbort
+                    ? "EXPERIMENT ABORTED during Agency survey (Escape or timeout)."
+                    : "EXPERIMENT ABORTED by user (Escape key).");
             }
         }
 

@@ -25,15 +25,25 @@ CALIBRATION_PHASE = "Calibration"
 TARGET_REVERSALS = 5  # Unity の StaircaseCalibrator.TARGET_REVERSALS と一致
 
 
-def load_calibration_trials(trial_csv: Path) -> pd.DataFrame:
+def load_calibration_trials(trial_csv: Path, session_index: int = 0,
+                             session_name: str = "") -> pd.DataFrame:
     df = pd.read_csv(trial_csv)
     df = df[df["Phase"] == CALIBRATION_PHASE].copy()
     df["EMSOffset_ms"] = pd.to_numeric(df["EMSOffset_ms"], errors="coerce")
     df["AgencyYes"] = pd.to_numeric(df["AgencyYes"], errors="coerce").fillna(0).astype(int)
     df["IsCorrect"] = pd.to_numeric(df["IsCorrect"], errors="coerce").fillna(0).astype(int)
     df["TrialNumber"] = pd.to_numeric(df["TrialNumber"], errors="coerce")
+    # 複数セッション結合後も時系列順に並べ替えられるよう、セッション順と Timestamp を明示列として保持
+    df["SessionIndex"] = session_index
+    df["SessionName"] = session_name
+    df["Timestamp"] = pd.to_datetime(df.get("Timestamp"), errors="coerce", utc=True)
     df = df.dropna(subset=["EMSOffset_ms", "TrialNumber"])
     return df
+
+
+# セッション跨ぎで時系列順になるソートキー
+# SubjectID が列にある場合（pooled 解析）は最優先で被験者ごとにまとめる
+_CHRONO_SORT_KEYS = ["SubjectID", "SessionIndex", "Timestamp", "TrialNumber"]
 
 
 def detect_reversals(agency_yes: np.ndarray, is_correct: np.ndarray,
@@ -56,7 +66,8 @@ def detect_reversals(agency_yes: np.ndarray, is_correct: np.ndarray,
 
 def summarize_staircase(side_df: pd.DataFrame) -> dict:
     """片側の階段法要約: 反転点・収束Offset（= 反転時 Offset の平均、Unity と同じ式）。"""
-    side_df = side_df.sort_values("TrialNumber").reset_index(drop=True)
+    sort_keys = [k for k in _CHRONO_SORT_KEYS if k in side_df.columns]
+    side_df = side_df.sort_values(sort_keys).reset_index(drop=True)
     offsets = side_df["EMSOffset_ms"].to_numpy()
     agency = side_df["AgencyYes"].to_numpy().astype(int)
     correct = side_df["IsCorrect"].to_numpy().astype(int)
@@ -113,7 +124,8 @@ def plot_staircase(df: pd.DataFrame, label: str, out_path: Path) -> None:
     """左右の階段法軌跡を 2 パネルでプロット。"""
     fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
     for ax, side in zip(axes, ["Left", "Right"]):
-        side_df = df[df["TargetSide"] == side].sort_values("TrialNumber").reset_index(drop=True)
+        sort_keys = [k for k in _CHRONO_SORT_KEYS if k in df.columns]
+        side_df = df[df["TargetSide"] == side].sort_values(sort_keys).reset_index(drop=True)
         if side_df.empty:
             ax.set_title(f"{side} — no data")
             ax.grid(True, alpha=0.3)
@@ -201,10 +213,11 @@ def analyze_subject(subject_dir: Path, out_dir: Path) -> tuple:
     """1 被験者の全セッション横断 Calibration 解析。"""
     subject_id = subject_dir.name
     dfs = []
-    for session_dir in sorted(subject_dir.glob("session_*")):
+    for idx, session_dir in enumerate(sorted(subject_dir.glob("session_*"))):
         csv_path = session_dir / "trial_log.csv"
         if csv_path.exists():
-            dfs.append(load_calibration_trials(csv_path))
+            dfs.append(load_calibration_trials(csv_path, session_index=idx,
+                                               session_name=session_dir.name))
 
     if not dfs:
         return {"subject_id": subject_id, "error": "no trial_log.csv found"}, None

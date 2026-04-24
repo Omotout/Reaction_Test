@@ -206,47 +206,44 @@ def compute_subject_summaries(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def compute_deltas(summary: pd.DataFrame) -> pd.DataFrame:
-    """PostTest - Baseline の Δ を被験者ごとに算出。"""
-    pivot_rt = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                    values="rt_mean_ms").reset_index()
-    pivot_acc = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                     values="p_correct").reset_index()
-    pivot_ies = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                     values="ies_ms").reset_index()
-    pivot_v = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                   values="ez_v").reset_index()
-    pivot_a = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                   values="ez_a").reset_index()
-    pivot_t = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
-                                   values="ez_t_s").reset_index()
+    """PostTest - Baseline の Δ を被験者ごとに算出。
 
-    def delta(p, col):
-        if "Baseline" not in p.columns or "PostTest" not in p.columns:
-            return pd.Series(np.nan, index=p.index)
-        return p["PostTest"] - p["Baseline"]
+    各指標を個別に pivot して位置合わせで結合すると、欠損パターン次第で
+    被験者行がずれて別被験者の値が混入する危険がある。Baseline と PostTest を
+    SubjectID/Group で明示 merge してから差分を取る。
+    """
+    metrics = {
+        "rt_ms": "rt_mean_ms",
+        "acc": "p_correct",
+        "ies_ms": "ies_ms",
+        "v": "ez_v",
+        "a": "ez_a",
+        "t_s": "ez_t_s",
+    }
+    cols = ["SubjectID", "Group"] + list(metrics.values())
 
-    deltas = pd.DataFrame({
-        "SubjectID": pivot_rt["SubjectID"],
-        "Group": pivot_rt["Group"],
-        "baseline_rt_ms": pivot_rt.get("Baseline"),
-        "posttest_rt_ms": pivot_rt.get("PostTest"),
-        "delta_rt_ms": delta(pivot_rt, "rt"),
-        "baseline_acc": pivot_acc.get("Baseline"),
-        "posttest_acc": pivot_acc.get("PostTest"),
-        "delta_acc": delta(pivot_acc, "acc"),
-        "baseline_ies_ms": pivot_ies.get("Baseline"),
-        "posttest_ies_ms": pivot_ies.get("PostTest"),
-        "delta_ies_ms": delta(pivot_ies, "ies"),
-        "baseline_v": pivot_v.get("Baseline"),
-        "posttest_v": pivot_v.get("PostTest"),
-        "delta_v": delta(pivot_v, "v"),
-        "baseline_a": pivot_a.get("Baseline"),
-        "posttest_a": pivot_a.get("PostTest"),
-        "delta_a": delta(pivot_a, "a"),
-        "baseline_t_s": pivot_t.get("Baseline"),
-        "posttest_t_s": pivot_t.get("PostTest"),
-        "delta_t_s": delta(pivot_t, "t"),
-    })
+    baseline = (summary[summary["Phase"] == "Baseline"][cols]
+                .drop_duplicates(subset=["SubjectID", "Group"]))
+    posttest = (summary[summary["Phase"] == "PostTest"][cols]
+                .drop_duplicates(subset=["SubjectID", "Group"]))
+
+    merged = baseline.merge(
+        posttest,
+        on=["SubjectID", "Group"],
+        how="outer",
+        suffixes=("_baseline", "_posttest"),
+    )
+
+    out = {"SubjectID": merged["SubjectID"], "Group": merged["Group"]}
+    for short, col in metrics.items():
+        base = merged[f"{col}_baseline"]
+        post = merged[f"{col}_posttest"]
+        out[f"baseline_{short}"] = base
+        out[f"posttest_{short}"] = post
+        out[f"delta_{short}"] = post - base
+
+    deltas = pd.DataFrame(out)
+
     # Δt 寄与率: Δt_ms / ΔRT_ms (両方が有限で ΔRT != 0 のとき)
     dt_ms = deltas["delta_t_s"] * 1000.0
     with np.errstate(divide="ignore", invalid="ignore"):
