@@ -1,30 +1,34 @@
 """
-analyze_training_effect.py
+analyze_training_effect.py — V3 CRT特化 + EZ-DDM 解析
 
-V3: CRT特化 + HDDM (階層型ドリフト拡散モデル) 解析対応
+検定プラン（6本をBH-FDR一括補正）:
+  目的1 (RT短縮 + 速度-正答率トレードオフ否定)
+    1a. ΔRT         : AgencyEMS vs Voluntary (期待: EMS群で有意に大きな短縮)
+    1b. ΔAccuracy   : AgencyEMS vs Voluntary (期待: 正答率は悪化していない)
+    1c. ΔIES        : AgencyEMS vs Voluntary (合成指標 RT/P_correct, 補助)
+  目的2 (決定時間 / 非決定時間への分解)
+    2a. Δa (決定閾値)   : 群間差なし → トレードオフ否定の機序的補強
+    2b. Δt (非決定時間) : EMS群で有意な短縮 → 運動プライミング
+    2c. Δv (ドリフト率) : 観察(仮説なし)
+  分解指標
+    frac_t = Δt / ΔRT : RT短縮のうち非決定時間由来の割合 (被験者ごと)
 
-分析内容:
-1. 従来分析: RT Gain計算 + 群間比較（t検定）
-2. HDDM解析: ベイズ推定でDDMパラメータ (a, t) を分離
-   - a: Decision threshold (決定閾値) — 慎重さの指標
-   - v: Drift rate (ドリフト率) — 情報蓄積速度
-   - t: Non-decision time (非決定時間) — 知覚処理+運動実行の時間
-3. RT分布プロット: 正答/誤答別のヒストグラム
+要約統計:
+  RT は IQR フィルタ (Q1 - 1.5·IQR, Q3 + 1.5·IQR) 適用後の平均
+  正答試行のみ (タイムアウト RT=-1 は事前除外)
 
-新CSVフォーマット:
-  SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyLikert,Timestamp
-
-  EMSOffset_ms     : 速めたい量（BaselineRTより何ms前倒しして押させたいか = Agency研究の pre-emptive gain）
-  EMSFireTiming_ms : 実発火タイミング（刺激提示から何ms後にEMSを発火したか = BaselineRT - Offset - EMSLatency）
+DDM 推定:
+  EZ-DDM (Wagenmakers et al., 2007) による被験者×フェーズ毎の点推定
+  Edge correction (Snodgrass & Corwin, 1988): P_c==0/1 時は 1/(2N) で救済
+  スケールパラメータ s = 0.1 (Wagenmakers 慣習)
 
 使用例:
-  python analyze_training_effect.py --data_dir <subject_data_root> --outdir <output_dir>
+  python analyze_training_effect.py --data_dir ../ExperimentData --outdir ./results
 """
-
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -33,629 +37,422 @@ from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# 統計パッケージ（オプショナル）
 try:
     import pingouin as pg
     HAS_PINGOUIN = True
 except ImportError:
     HAS_PINGOUIN = False
-    print("Warning: pingouin not installed. Mixed ANOVA will be skipped.")
 
-# HDDM / ベイズ推定パッケージ（オプショナル）
-try:
-    import pymc as pm
-    import arviz as az
-    HAS_PYMC = True
-except ImportError:
-    HAS_PYMC = False
-    print("Warning: pymc/arviz not installed. HDDM analysis will be skipped.")
-    print("Install with: pip install pymc arviz")
+EZ_SCALE = 0.1  # Wagenmakers EZ-DDM の慣習的スケール
 
 
 # =====================================================================
-# データ読み込み（V3 CSVフォーマット対応）
+# データ読み込み
 # =====================================================================
 
 def load_all_subjects(data_dir: Path) -> pd.DataFrame:
-    """
-    全被験者のtrial_log.csvを読み込み、統合
-    V3フォーマット: SubjectID,Group,Phase,...
-    """
+    """全被験者の全セッションの trial_log.csv を結合して返す"""
     all_data = []
-
-    for subject_dir in data_dir.iterdir():
+    for subject_dir in sorted(data_dir.iterdir()):
         if not subject_dir.is_dir():
             continue
-
-        # 最新のセッションを探す（session_XX_...）
-        sessions = sorted([
-            d for d in subject_dir.iterdir()
-            if d.is_dir() and d.name.startswith("session_")
-        ], reverse=True)
-
-        if not sessions:
-            print(f"Warning: No session for {subject_dir.name}, skipping.")
-            continue
-
-        session_dir = sessions[0]
-        trial_log = session_dir / "trial_log.csv"
-
-        if not trial_log.exists():
-            print(f"Warning: No trial_log.csv in {session_dir}, skipping.")
-            continue
-
-        df = pd.read_csv(trial_log)
-        all_data.append(df)
-
+        for session_dir in sorted(subject_dir.glob("session_*")):
+            trial_log = session_dir / "trial_log.csv"
+            if trial_log.exists():
+                all_data.append(pd.read_csv(trial_log))
     if not all_data:
-        raise ValueError("No valid subject data found.")
-
+        raise ValueError(f"No trial_log.csv found under {data_dir}")
     return pd.concat(all_data, ignore_index=True)
 
 
 def preprocess(df: pd.DataFrame, min_rt: float = 100, max_rt: float = 1000) -> pd.DataFrame:
-    """
-    前処理:
-    - EMSLatencyフェーズを除外（DDM解析には使わない）
-    - Practiceフェーズを除外（習熟用）
-    - RT外れ値除去
-    """
-    # 解析対象フェーズのみ
-    analysis_phases = ["Baseline", "Training", "PostTest"]
-    df = df[df["Phase"].isin(analysis_phases)].copy()
-
-    # タイムアウト（RT=-1）を除外
-    df = df[df["ReactionTime_ms"] > 0].copy()
-
-    # RT外れ値除去
-    original_n = len(df)
+    """解析対象フェーズに絞り、タイムアウト・生理制約外の RT を除去。"""
+    df = df[df["Phase"].isin(["Baseline", "PostTest"])].copy()
+    df["ReactionTime_ms"] = pd.to_numeric(df["ReactionTime_ms"], errors="coerce")
+    df["IsCorrect"] = pd.to_numeric(df["IsCorrect"], errors="coerce").fillna(0).astype(int)
+    df = df.dropna(subset=["ReactionTime_ms"])
+    df = df[df["ReactionTime_ms"] > 0]  # タイムアウト(-1)を除外
+    n0 = len(df)
     df = df[(df["ReactionTime_ms"] >= min_rt) & (df["ReactionTime_ms"] <= max_rt)].copy()
-    removed_n = original_n - len(df)
-    removed_pct = (removed_n / original_n * 100) if original_n > 0 else 0
-    print(f"Outlier removal: {removed_n}/{original_n} ({removed_pct:.1f}%) removed")
-
+    print(f"Preprocess: {n0 - len(df)}/{n0} trials removed by RT bounds [{min_rt}, {max_rt}]ms")
     return df
 
 
 # =====================================================================
-# 従来分析: RT Gain
+# IQR-filtered mean
 # =====================================================================
 
-def compute_rt_gain(df: pd.DataFrame) -> pd.DataFrame:
+def iqr_filtered_mean(rts: np.ndarray, k: float = 1.5) -> Optional[float]:
+    """IQR フィルタ [Q1 - k·IQR, Q3 + k·IQR] を適用後の平均。データ不足時は None。"""
+    rts = np.asarray(rts)
+    if len(rts) < 4:
+        return float(np.mean(rts)) if len(rts) > 0 else None
+    q1, q3 = np.quantile(rts, [0.25, 0.75])
+    iqr = q3 - q1
+    lo, hi = q1 - k * iqr, q3 + k * iqr
+    kept = rts[(rts >= lo) & (rts <= hi)]
+    if len(kept) == 0:
+        return float(np.median(rts))
+    return float(np.mean(kept))
+
+
+def iqr_filtered_var(rts: np.ndarray, k: float = 1.5) -> Optional[float]:
+    """EZ-DDM 用: IQR フィルタ後の分散 (ddof=1)。"""
+    rts = np.asarray(rts)
+    if len(rts) < 4:
+        return float(np.var(rts, ddof=1)) if len(rts) >= 2 else None
+    q1, q3 = np.quantile(rts, [0.25, 0.75])
+    iqr = q3 - q1
+    lo, hi = q1 - k * iqr, q3 + k * iqr
+    kept = rts[(rts >= lo) & (rts <= hi)]
+    if len(kept) < 2:
+        return float(np.var(rts, ddof=1))
+    return float(np.var(kept, ddof=1))
+
+
+# =====================================================================
+# EZ-DDM (Wagenmakers et al., 2007)
+# =====================================================================
+
+def ez_ddm(p_correct: float, mean_rt_s: float, var_rt_s: float,
+           n_total: int, s: float = EZ_SCALE) -> dict:
+    """EZ-DDM 閉形式推定。RT は秒単位。
+
+    Returns dict with keys: v, a, t, mdt, p_correct_adjusted, edge_corrected, valid, reason
     """
-    RT Gain計算: PostTest_RT - Baseline_RT
-    CRT特化のため、タスク軸はなし（被験者×群のみ）
-    """
-    results = []
+    result = {"v": None, "a": None, "t": None, "mdt": None,
+              "p_correct_adjusted": p_correct, "edge_corrected": False,
+              "valid": False, "reason": None}
 
-    for (subject_id, group), g in df.groupby(["SubjectID", "Group"]):
-        # 正解試行のみ使用
-        correct = g[g["IsCorrect"] == 1]
+    if n_total < 4 or var_rt_s is None or var_rt_s <= 0 or mean_rt_s <= 0:
+        result["reason"] = f"insufficient data (n={n_total}, var={var_rt_s})"
+        return result
 
-        baseline = correct[correct["Phase"] == "Baseline"]["ReactionTime_ms"]
-        posttest = correct[correct["Phase"] == "PostTest"]["ReactionTime_ms"]
+    # Edge correction: P=0 or P=1 で logit が発散するのを救済
+    p_adj = p_correct
+    if p_correct >= 1.0:
+        p_adj = 1.0 - 1.0 / (2.0 * n_total)
+        result["edge_corrected"] = True
+    elif p_correct <= 0.0:
+        p_adj = 1.0 / (2.0 * n_total)
+        result["edge_corrected"] = True
 
-        if baseline.empty or posttest.empty:
-            continue
+    if abs(p_adj - 0.5) < 1e-6:
+        # P=0.5 では v の符号が定まらず推定不能
+        result["reason"] = "P_correct == 0.5 (v not identifiable)"
+        return result
 
-        baseline_rt = baseline.median()
-        posttest_rt = posttest.median()
-        gain = posttest_rt - baseline_rt
+    result["p_correct_adjusted"] = p_adj
 
-        results.append({
-            "SubjectID": subject_id,
-            "Group": group,
-            "baseline_rt": baseline_rt,
-            "posttest_rt": posttest_rt,
-            "rt_gain": gain,
-            "n_baseline": len(baseline),
-            "n_posttest": len(posttest)
+    # Wagenmakers formula
+    L = np.log(p_adj / (1.0 - p_adj))
+    x = L * (L * p_adj**2 - L * p_adj + p_adj - 0.5) / var_rt_s
+    if x <= 0:
+        # 分散が大きすぎる or 正答率が 0.5 近傍で x が負
+        result["reason"] = f"invalid x={x:.4f} (var_rt may be too large)"
+        return result
+
+    sign = 1.0 if p_adj > 0.5 else -1.0
+    v = sign * s * x**0.25
+    a = s**2 * L / v
+    y = -v * a / (s**2)
+    mdt = (a / (2.0 * v)) * ((1.0 - np.exp(y)) / (1.0 + np.exp(y)))
+    t_er = mean_rt_s - mdt
+
+    result.update({
+        "v": float(v), "a": float(a), "t": float(t_er),
+        "mdt": float(mdt), "valid": True,
+    })
+    return result
+
+
+# =====================================================================
+# 被験者×フェーズの要約統計 + EZ-DDM
+# =====================================================================
+
+def compute_subject_summaries(df: pd.DataFrame) -> pd.DataFrame:
+    """被験者 × フェーズごとに RT/Accuracy/IES/EZ-DDM パラメータを算出。"""
+    rows = []
+    for (subj, group, phase), g in df.groupby(["SubjectID", "Group", "Phase"]):
+        n_total = len(g)
+        n_correct = int(g["IsCorrect"].sum())
+        p_correct = n_correct / n_total if n_total > 0 else np.nan
+
+        correct_rts_ms = g.loc[g["IsCorrect"] == 1, "ReactionTime_ms"].to_numpy()
+        rt_mean = iqr_filtered_mean(correct_rts_ms)
+        rt_var = iqr_filtered_var(correct_rts_ms)
+
+        # IES = mean_RT / P_correct (low = efficient)
+        ies = rt_mean / p_correct if (rt_mean is not None and p_correct and p_correct > 0) else np.nan
+
+        # EZ-DDM (RT は秒単位で渡す)
+        ez = ez_ddm(
+            p_correct=p_correct,
+            mean_rt_s=(rt_mean / 1000.0) if rt_mean is not None else np.nan,
+            var_rt_s=(rt_var / (1000.0**2)) if rt_var is not None else np.nan,
+            n_total=n_total,
+        )
+
+        rows.append({
+            "SubjectID": subj, "Group": group, "Phase": phase,
+            "n_total": n_total, "n_correct": n_correct, "p_correct": p_correct,
+            "rt_mean_ms": rt_mean, "rt_var_ms2": rt_var,
+            "ies_ms": ies,
+            "ez_v": ez["v"], "ez_a": ez["a"], "ez_t_s": ez["t"], "ez_mdt_s": ez["mdt"],
+            "ez_valid": ez["valid"], "ez_edge_corrected": ez["edge_corrected"],
+            "ez_reason": ez["reason"],
         })
+    return pd.DataFrame(rows)
 
-    return pd.DataFrame(results)
+
+def compute_deltas(summary: pd.DataFrame) -> pd.DataFrame:
+    """PostTest - Baseline の Δ を被験者ごとに算出。"""
+    pivot_rt = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                    values="rt_mean_ms").reset_index()
+    pivot_acc = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                     values="p_correct").reset_index()
+    pivot_ies = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                     values="ies_ms").reset_index()
+    pivot_v = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                   values="ez_v").reset_index()
+    pivot_a = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                   values="ez_a").reset_index()
+    pivot_t = summary.pivot_table(index=["SubjectID", "Group"], columns="Phase",
+                                   values="ez_t_s").reset_index()
+
+    def delta(p, col):
+        if "Baseline" not in p.columns or "PostTest" not in p.columns:
+            return pd.Series(np.nan, index=p.index)
+        return p["PostTest"] - p["Baseline"]
+
+    deltas = pd.DataFrame({
+        "SubjectID": pivot_rt["SubjectID"],
+        "Group": pivot_rt["Group"],
+        "baseline_rt_ms": pivot_rt.get("Baseline"),
+        "posttest_rt_ms": pivot_rt.get("PostTest"),
+        "delta_rt_ms": delta(pivot_rt, "rt"),
+        "baseline_acc": pivot_acc.get("Baseline"),
+        "posttest_acc": pivot_acc.get("PostTest"),
+        "delta_acc": delta(pivot_acc, "acc"),
+        "baseline_ies_ms": pivot_ies.get("Baseline"),
+        "posttest_ies_ms": pivot_ies.get("PostTest"),
+        "delta_ies_ms": delta(pivot_ies, "ies"),
+        "baseline_v": pivot_v.get("Baseline"),
+        "posttest_v": pivot_v.get("PostTest"),
+        "delta_v": delta(pivot_v, "v"),
+        "baseline_a": pivot_a.get("Baseline"),
+        "posttest_a": pivot_a.get("PostTest"),
+        "delta_a": delta(pivot_a, "a"),
+        "baseline_t_s": pivot_t.get("Baseline"),
+        "posttest_t_s": pivot_t.get("PostTest"),
+        "delta_t_s": delta(pivot_t, "t"),
+    })
+    # Δt 寄与率: Δt_ms / ΔRT_ms (両方が有限で ΔRT != 0 のとき)
+    dt_ms = deltas["delta_t_s"] * 1000.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        frac_t = np.where(np.abs(deltas["delta_rt_ms"]) > 1e-6,
+                          dt_ms / deltas["delta_rt_ms"], np.nan)
+    deltas["frac_t_of_rt"] = frac_t
+    return deltas
 
 
-def run_group_comparison(gain_df: pd.DataFrame) -> Dict:
-    """
-    群間比較: AgencyEMS vs Voluntary
-    - 独立t検定 + Cohen's d
-    - BH-FDR 多重比較補正
-    - ベイズファクター BF10（pingouin利用可能時）
-    """
-    agency = gain_df[gain_df["Group"] == "AgencyEMS"]["rt_gain"]
-    voluntary = gain_df[gain_df["Group"] == "Voluntary"]["rt_gain"]
+# =====================================================================
+# 群間検定 (BH-FDR 一括補正)
+# =====================================================================
 
-    results = {
-        "agency_mean": float(agency.mean()) if len(agency) > 0 else None,
-        "agency_sd": float(agency.std()) if len(agency) > 0 else None,
-        "agency_n": int(len(agency)),
-        "voluntary_mean": float(voluntary.mean()) if len(voluntary) > 0 else None,
-        "voluntary_sd": float(voluntary.std()) if len(voluntary) > 0 else None,
-        "voluntary_n": int(len(voluntary)),
+def independent_ttest(a: np.ndarray, b: np.ndarray) -> dict:
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    a = a[np.isfinite(a)]
+    b = b[np.isfinite(b)]
+    if len(a) < 2 or len(b) < 2:
+        return {"n_a": len(a), "n_b": len(b), "reason": "insufficient data"}
+    t, p = stats.ttest_ind(a, b, equal_var=False)  # Welch
+    pooled_sd = np.sqrt(((len(a) - 1) * a.var(ddof=1) + (len(b) - 1) * b.var(ddof=1)) /
+                        (len(a) + len(b) - 2))
+    d = (a.mean() - b.mean()) / pooled_sd if pooled_sd > 0 else 0.0
+    result = {
+        "n_a": int(len(a)), "n_b": int(len(b)),
+        "mean_a": float(a.mean()), "sd_a": float(a.std(ddof=1)),
+        "mean_b": float(b.mean()), "sd_b": float(b.std(ddof=1)),
+        "mean_diff": float(a.mean() - b.mean()),
+        "t": float(t), "p_uncorrected": float(p), "cohens_d": float(d),
+    }
+    if HAS_PINGOUIN:
+        try:
+            bf = pg.ttest(a, b, paired=False)
+            result["bf10"] = float(bf["BF10"].values[0])
+        except Exception:
+            pass
+    return result
+
+
+def run_all_group_tests(deltas: pd.DataFrame) -> dict:
+    """AgencyEMS vs Voluntary の 6 主検定 + BH-FDR 補正。"""
+    agency = deltas[deltas["Group"] == "AgencyEMS"]
+    volu = deltas[deltas["Group"] == "Voluntary"]
+
+    tests = {
+        "1a_delta_rt_ms":    ("delta_rt_ms",   "H1a: AgencyEMS group shows larger RT reduction"),
+        "1b_delta_acc":      ("delta_acc",     "H1b: AgencyEMS accuracy is not worse"),
+        "1c_delta_ies_ms":   ("delta_ies_ms",  "H1c: AgencyEMS shows larger IES improvement"),
+        "2a_delta_a":        ("delta_a",       "H2a: No group diff in Δa (tradeoff rejection)"),
+        "2b_delta_t_s":      ("delta_t_s",     "H2b: AgencyEMS shows larger Δt reduction"),
+        "2c_delta_v":        ("delta_v",       "H2c: Δv observation (no prior hypothesis)"),
     }
 
-    # 全p値を収集して最後にFDR補正
-    all_p_values = []
-    all_test_names = []
+    results = {}
+    p_list, name_list = [], []
+    for key, (col, desc) in tests.items():
+        res = independent_ttest(agency[col].to_numpy(), volu[col].to_numpy())
+        res["description"] = desc
+        res["metric"] = col
+        results[key] = res
+        if "p_uncorrected" in res:
+            p_list.append(res["p_uncorrected"])
+            name_list.append(key)
 
-    if len(agency) >= 2 and len(voluntary) >= 2:
-        t_stat, p_val = stats.ttest_ind(agency, voluntary)
-        pooled_std = np.sqrt(
-            ((len(agency)-1)*agency.std()**2 + (len(voluntary)-1)*voluntary.std()**2) /
-            (len(agency) + len(voluntary) - 2)
-        )
-        cohens_d = (agency.mean() - voluntary.mean()) / pooled_std if pooled_std > 0 else 0
+    if len(p_list) >= 2:
+        _, p_corr, _, _ = multipletests(p_list, method="fdr_bh")
+        for key, pc in zip(name_list, p_corr):
+            results[key]["p_fdr"] = float(pc)
+            results[key]["significant_fdr"] = bool(pc < 0.05)
 
-        results.update({
-            "t_statistic": float(t_stat),
-            "p_value_uncorrected": float(p_val),
-            "cohens_d": float(cohens_d),
-        })
-        all_p_values.append(p_val)
-        all_test_names.append("group_comparison")
-
-        # ベイズファクター BF10（pingouin利用可能時）
-        if HAS_PINGOUIN:
-            try:
-                bf_result = pg.ttest(agency, voluntary, paired=False)
-                bf10 = float(bf_result["BF10"].values[0])
-                results["bf10"] = bf10
-            except Exception as e:
-                print(f"Warning: BF10 calculation failed: {e}")
-
-    # One-sample t-test: 各群のGain vs 0
-    one_sample = []
-    for group_name, group_data in [("AgencyEMS", agency), ("Voluntary", voluntary)]:
-        if len(group_data) >= 2:
-            t_stat, p_val = stats.ttest_1samp(group_data, 0)
-            test_result = {
-                "group": group_name,
-                "mean_gain": float(group_data.mean()),
-                "sd": float(group_data.std()),
-                "n": int(len(group_data)),
-                "t_statistic": float(t_stat),
-                "p_value_uncorrected": float(p_val),
+    # One-sample vs 0 (各群 × ΔRT, Δt, Δa, Δv) — 参考情報として
+    one_sample = {}
+    for group_name, g in [("AgencyEMS", agency), ("Voluntary", volu)]:
+        for col in ["delta_rt_ms", "delta_acc", "delta_t_s", "delta_a", "delta_v"]:
+            vals = g[col].dropna().to_numpy()
+            if len(vals) < 2:
+                continue
+            t, p = stats.ttest_1samp(vals, 0.0)
+            one_sample[f"{group_name}_{col}"] = {
+                "n": int(len(vals)), "mean": float(vals.mean()),
+                "sd": float(vals.std(ddof=1)),
+                "t": float(t), "p_uncorrected": float(p),
             }
-            all_p_values.append(p_val)
-            all_test_names.append(f"one_sample_{group_name}")
+    results["_one_sample_vs_zero"] = one_sample
 
-            # BF10
-            if HAS_PINGOUIN:
-                try:
-                    bf_result = pg.ttest(group_data, 0)
-                    test_result["bf10"] = float(bf_result["BF10"].values[0])
-                except Exception:
-                    pass
+    # 分解指標の群平均
+    frac_t_summary = {}
+    for group_name, g in [("AgencyEMS", agency), ("Voluntary", volu)]:
+        vals = g["frac_t_of_rt"].replace([np.inf, -np.inf], np.nan).dropna().to_numpy()
+        if len(vals) > 0:
+            frac_t_summary[group_name] = {
+                "n": int(len(vals)),
+                "mean_frac_t": float(vals.mean()),
+                "median_frac_t": float(np.median(vals)),
+                "sd": float(vals.std(ddof=1)) if len(vals) > 1 else None,
+            }
+    results["_frac_t_of_rt"] = frac_t_summary
 
-            one_sample.append(test_result)
-
-    # BH-FDR 多重比較補正
-    if len(all_p_values) >= 2:
-        rejected, corrected_p, _, _ = multipletests(all_p_values, method="fdr_bh")
-        correction_map = dict(zip(all_test_names, corrected_p))
-
-        if "group_comparison" in correction_map:
-            results["p_value_fdr"] = float(correction_map["group_comparison"])
-            results["significant_fdr"] = bool(correction_map["group_comparison"] < 0.05)
-
-        for test in one_sample:
-            key = f"one_sample_{test['group']}"
-            if key in correction_map:
-                test["p_value_fdr"] = float(correction_map[key])
-                test["significant_fdr"] = bool(correction_map[key] < 0.05)
-    else:
-        # 補正不要（検定1つのみ）
-        if "p_value_uncorrected" in results:
-            results["p_value_fdr"] = results["p_value_uncorrected"]
-            results["significant_fdr"] = results["p_value_uncorrected"] < 0.05
-        for test in one_sample:
-            test["p_value_fdr"] = test["p_value_uncorrected"]
-            test["significant_fdr"] = test["p_value_uncorrected"] < 0.05
-
-    results["one_sample_tests"] = one_sample
-    results["correction_method"] = "BH-FDR"
     return results
 
 
 # =====================================================================
-# HDDM解析（スケルトン）
+# プロット
 # =====================================================================
 
-def prepare_hddm_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    HDDM用データフォーマットに変換
-    HDDM標準入力形式:
-      subj_idx: 被験者ID
-      response: 正答=1, 誤答=0
-      rt: 反応時間（秒単位）
-      condition: 条件ラベル
-    """
-    hddm_df = pd.DataFrame({
-        "subj_idx": df["SubjectID"],
-        "response": df["IsCorrect"].astype(int),
-        "rt": df["ReactionTime_ms"] / 1000.0,  # 秒に変換
-        "condition": df["Phase"] + "_" + df["Group"],
-        "phase": df["Phase"],
-        "group": df["Group"]
-    })
-
-    return hddm_df
-
-
-def run_hddm_analysis(df: pd.DataFrame, output_dir: Path) -> Optional[Dict]:
-    """
-    HDDM (Hierarchical Drift Diffusion Model) 解析
-    PyMCを用いたベイズ推定でDDMパラメータを推定
-
-    推定パラメータ:
-      a: Decision threshold（決定閾値）— 慎重さの指標
-      v: Drift rate（ドリフト率）— 情報蓄積速度
-      t: Non-decision time（非決定時間）— 知覚+運動の時間
-
-    比較:
-      Baseline vs PostTest の a, t の変化を群間で比較
-
-    注意: これはスケルトン実装です。実際の使用時にはサンプリング設定の
-    チューニングが必要です。
-    """
-    if not HAS_PYMC:
-        print("PyMC not available. Skipping HDDM analysis.")
-        return None
-
-    hddm_df = prepare_hddm_data(df)
-
-    # Baseline と PostTest のみを使用
-    analysis_df = hddm_df[hddm_df["phase"].isin(["Baseline", "PostTest"])].copy()
-
-    if len(analysis_df) < 50:
-        print(f"Warning: Only {len(analysis_df)} trials available. HDDM may not converge.")
-
-    print("\n=== HDDM Analysis (PyMC) ===")
-    print(f"Total trials: {len(analysis_df)}")
-    print(f"Subjects: {analysis_df['subj_idx'].nunique()}")
-    print(f"Conditions: {analysis_df['condition'].unique()}")
-
-    # ─── 階層DDMモデル定義 ───
-    # 各条件（Phase×Group）でのパラメータを推定
-    conditions = analysis_df["condition"].unique()
-    condition_idx = pd.Categorical(analysis_df["condition"], categories=conditions).codes
-
-    rt_observed = analysis_df["rt"].values
-    response_observed = analysis_df["response"].values
-
-    try:
-        with pm.Model() as ddm_model:
-            # ── 階層事前分布（全条件共通の親分布） ──
-
-            # Decision threshold (a): 0.5〜3.0 程度
-            a_mu = pm.HalfNormal("a_mu", sigma=1.0)
-            a_sigma = pm.HalfNormal("a_sigma", sigma=0.5)
-            a = pm.HalfNormal("a", sigma=a_sigma, shape=len(conditions))
-
-            # Non-decision time (t): 0.1〜0.5秒程度
-            t_mu = pm.HalfNormal("t_mu", sigma=0.3)
-            t_sigma = pm.HalfNormal("t_sigma", sigma=0.1)
-            t = pm.HalfNormal("t", sigma=t_sigma, shape=len(conditions))
-
-            # Drift rate (v): -5〜+5 程度
-            v_mu = pm.Normal("v_mu", mu=1.0, sigma=2.0)
-            v_sigma = pm.HalfNormal("v_sigma", sigma=1.0)
-            v = pm.Normal("v", mu=v_mu, sigma=v_sigma, shape=len(conditions))
-
-            # ── 尤度（簡易版: 正規分布近似） ──
-            # 注: 完全なDDMの尤度関数はWiener first-passage timeの密度関数だが、
-            #     ここでは正規分布で近似したスケルトンを実装。
-            #     本格運用時は hddm ライブラリまたはカスタムWiener分布を使用すること。
-
-            predicted_rt = t[condition_idx] + a[condition_idx] / (2.0 * pm.math.abs(v[condition_idx]) + 0.001)
-            rt_sigma = pm.HalfNormal("rt_sigma", sigma=0.2)
-
-            rt_obs = pm.Normal(
-                "rt_obs",
-                mu=predicted_rt,
-                sigma=rt_sigma,
-                observed=rt_observed
-            )
-
-            # ── サンプリング ──
-            print("Starting MCMC sampling (this may take several minutes)...")
-            trace = pm.sample(
-                draws=1000,
-                tune=500,
-                chains=2,
-                cores=1,  # Unity解析環境のため1コア推奨
-                return_inferencedata=True,
-                progressbar=True
-            )
-
-        # ── 結果の要約 ──
-        summary = az.summary(trace, var_names=["a", "t", "v"])
-        print("\nDDM Parameter Summary:")
-        print(summary)
-
-        # 結果をCSV保存
-        summary.to_csv(output_dir / "hddm_summary.csv")
-
-        # トレースプロット保存
-        fig = az.plot_trace(trace, var_names=["a", "t", "v"])
-        plt.tight_layout()
-        plt.savefig(output_dir / "hddm_trace.png", dpi=150)
-        plt.close()
-
-        # 条件別パラメータの比較
-        results = {
-            "conditions": list(conditions),
-            "summary": summary.to_dict(),
-        }
-
-        # Baseline vs PostTest のパラメータ差分
-        for group in ["AgencyEMS", "Voluntary"]:
-            baseline_key = f"Baseline_{group}"
-            posttest_key = f"PostTest_{group}"
-
-            if baseline_key in conditions and posttest_key in conditions:
-                b_idx = list(conditions).index(baseline_key)
-                p_idx = list(conditions).index(posttest_key)
-
-                a_posterior_diff = (trace.posterior["a"].sel(a_dim_0=p_idx) -
-                                   trace.posterior["a"].sel(a_dim_0=b_idx))
-                t_posterior_diff = (trace.posterior["t"].sel(t_dim_0=p_idx) -
-                                   trace.posterior["t"].sel(t_dim_0=b_idx))
-
-                results[f"{group}_a_diff_mean"] = float(a_posterior_diff.mean())
-                results[f"{group}_a_diff_hdi"] = az.hdi(a_posterior_diff.values.flatten()).tolist()
-                results[f"{group}_t_diff_mean"] = float(t_posterior_diff.mean())
-                results[f"{group}_t_diff_hdi"] = az.hdi(t_posterior_diff.values.flatten()).tolist()
-
-                print(f"\n{group}: Baseline → PostTest parameter changes:")
-                print(f"  Δa (threshold): {results[f'{group}_a_diff_mean']:.4f}")
-                print(f"  Δt (non-decision): {results[f'{group}_t_diff_mean']:.4f}")
-
-        return results
-
-    except Exception as e:
-        print(f"HDDM analysis failed: {e}")
-        print("This is a skeleton implementation. Check data format and model specification.")
-        return {"error": str(e)}
-
-
-# =====================================================================
-# RT分布プロット（正答/誤答別）
-# =====================================================================
-
-def plot_rt_distributions(df: pd.DataFrame, output_dir: Path) -> List[Path]:
-    """
-    RT分布のヒストグラム（正答/誤答別）
-    DDM解析では正答・誤答のRT分布形状が重要な情報源
-    """
+def plot_rt_distributions(df: pd.DataFrame, out_dir: Path) -> list:
+    """正答/誤答 × フェーズ × 群の RT 分布ヒストグラム。"""
     plots = []
-
-    # Baseline と PostTest のRT分布を比較
     for phase in ["Baseline", "PostTest"]:
-        phase_data = df[df["Phase"] == phase]
-        if phase_data.empty:
+        pdf = df[df["Phase"] == phase]
+        if pdf.empty:
             continue
-
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-        for i, group in enumerate(["AgencyEMS", "Voluntary"]):
-            ax = axes[i]
-            group_data = phase_data[phase_data["Group"] == group]
-
-            if group_data.empty:
-                ax.set_title(f"{group} - No data")
+        for ax, group in zip(axes, ["AgencyEMS", "Voluntary"]):
+            gdf = pdf[pdf["Group"] == group]
+            if gdf.empty:
+                ax.set_title(f"{group} — no data")
                 continue
-
-            correct = group_data[group_data["IsCorrect"] == 1]["ReactionTime_ms"]
-            error = group_data[group_data["IsCorrect"] == 0]["ReactionTime_ms"]
-
-            # 正答RTヒストグラム
-            if len(correct) > 0:
-                ax.hist(correct, bins=30, alpha=0.7, color="steelblue",
-                        label=f"Correct (n={len(correct)})", density=True)
-
-            # 誤答RTヒストグラム（負の軸に反転して表示 = DDM慣習）
-            if len(error) > 0:
-                ax.hist(error, bins=15, alpha=0.7, color="salmon",
-                        label=f"Error (n={len(error)})", density=True)
-
-            ax.set_xlabel("Reaction Time (ms)")
-            ax.set_ylabel("Density")
+            corr = gdf.loc[gdf["IsCorrect"] == 1, "ReactionTime_ms"]
+            err = gdf.loc[gdf["IsCorrect"] == 0, "ReactionTime_ms"]
+            if len(corr) > 0:
+                ax.hist(corr, bins=30, alpha=0.7, color="steelblue",
+                        label=f"Correct (n={len(corr)})", density=True)
+            if len(err) > 0:
+                ax.hist(err, bins=15, alpha=0.7, color="salmon",
+                        label=f"Error (n={len(err)})", density=True)
+            ax.set_xlabel("RT (ms)"); ax.set_ylabel("Density")
             ax.set_title(f"{group} — {phase}")
-            ax.legend()
-            ax.set_xlim(0, 1000)
-
-        plt.suptitle(f"RT Distribution: {phase} (Correct vs Error)", fontsize=14)
-        plot_path = output_dir / f"rt_distribution_{phase.lower()}.png"
+            ax.legend(); ax.set_xlim(0, 1000)
+        plt.suptitle(f"RT Distribution — {phase}")
         plt.tight_layout()
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
-        plots.append(plot_path)
-
-    # 全フェーズ重ね合わせ（群別）
-    for group in ["AgencyEMS", "Voluntary"]:
-        group_data = df[df["Group"] == group]
-        if group_data.empty:
-            continue
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        for phase, color in [("Baseline", "gray"), ("PostTest", "steelblue")]:
-            phase_data = group_data[(group_data["Phase"] == phase) & (group_data["IsCorrect"] == 1)]
-            if len(phase_data) > 0:
-                ax.hist(phase_data["ReactionTime_ms"], bins=30, alpha=0.5,
-                        color=color, label=f"{phase} (n={len(phase_data)})", density=True)
-
-        ax.set_xlabel("Reaction Time (ms)")
-        ax.set_ylabel("Density")
-        ax.set_title(f"{group}: Baseline vs PostTest RT Distribution (Correct only)")
-        ax.legend()
-        ax.set_xlim(0, 1000)
-
-        plot_path = output_dir / f"rt_overlay_{group.lower()}.png"
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
-        plots.append(plot_path)
-
+        p = out_dir / f"rt_distribution_{phase.lower()}.png"
+        plt.savefig(p, dpi=150); plt.close()
+        plots.append(p)
     return plots
 
 
-# =====================================================================
-# 従来プロット
-# =====================================================================
-
-def create_gain_plots(gain_df: pd.DataFrame, output_dir: Path) -> List[Path]:
-    """RT Gain の箱ひげ図 + 個人プロット"""
-    plots = []
-
-    # 1. RT Gain by Group（箱ひげ図）
-    fig, ax = plt.subplots(figsize=(8, 6))
-    sns.boxplot(data=gain_df, x="Group", y="rt_gain", ax=ax, palette="Set2")
-    sns.stripplot(data=gain_df, x="Group", y="rt_gain", ax=ax,
-                  color="black", alpha=0.5, jitter=True)
-    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-    ax.set_xlabel("Group")
-    ax.set_ylabel("RT Gain (ms)\n(negative = faster)")
-    ax.set_title("Reaction Time Gain: AgencyEMS vs Voluntary")
-
-    plot_path = output_dir / "rt_gain_boxplot.png"
+def plot_deltas_boxplot(deltas: pd.DataFrame, out_dir: Path) -> list:
+    """Δ 系列（RT, Acc, IES, v, a, t）を群別に箱ひげ + ストリップでプロット。"""
+    specs = [
+        ("delta_rt_ms", "ΔRT (ms)  negative = faster"),
+        ("delta_acc", "ΔAccuracy  positive = more accurate"),
+        ("delta_ies_ms", "ΔIES (ms)  negative = more efficient"),
+        ("delta_v", "Δv (drift rate)"),
+        ("delta_a", "Δa (threshold)  negative could indicate tradeoff"),
+        ("delta_t_s", "Δt (non-decision, s)  negative = motor priming"),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    for ax, (col, title) in zip(axes.flatten(), specs):
+        d = deltas.dropna(subset=[col])
+        if d.empty:
+            ax.set_title(f"{title} — no data"); continue
+        sns.boxplot(data=d, x="Group", y=col, ax=ax, palette="Set2",
+                    order=["AgencyEMS", "Voluntary"])
+        sns.stripplot(data=d, x="Group", y=col, ax=ax, color="black",
+                      alpha=0.5, jitter=True, order=["AgencyEMS", "Voluntary"])
+        ax.axhline(0, color="gray", ls="--", alpha=0.5)
+        ax.set_title(title)
+    plt.suptitle("Group comparisons: AgencyEMS vs Voluntary (Δ = PostTest − Baseline)")
     plt.tight_layout()
-    plt.savefig(plot_path, dpi=150)
-    plt.close()
-    plots.append(plot_path)
+    p = out_dir / "group_deltas_boxplots.png"
+    plt.savefig(p, dpi=150); plt.close()
+    return [p]
 
-    # 2. Pre/Post比較（ペアプロット）
+
+def plot_pre_post(deltas: pd.DataFrame, out_dir: Path) -> list:
+    """RT の Pre/Post ペアプロット。"""
     fig, ax = plt.subplots(figsize=(8, 6))
-
     for group, color in [("AgencyEMS", "steelblue"), ("Voluntary", "coral")]:
-        group_data = gain_df[gain_df["Group"] == group]
-        for _, row in group_data.iterrows():
-            ax.plot([0, 1], [row["baseline_rt"], row["posttest_rt"]],
-                    'o-', color=color, alpha=0.4)
-
-        # 群平均
-        mean_bl = group_data["baseline_rt"].mean()
-        mean_pt = group_data["posttest_rt"].mean()
-        ax.plot([0, 1], [mean_bl, mean_pt], 's-', color=color,
-                markersize=12, linewidth=3, label=f"{group} (mean)")
-
-    ax.set_xticks([0, 1])
-    ax.set_xticklabels(["Baseline", "PostTest"])
-    ax.set_ylabel("Reaction Time (ms)")
-    ax.set_title("Pre/Post Reaction Times by Group")
+        g = deltas[deltas["Group"] == group].dropna(subset=["baseline_rt_ms", "posttest_rt_ms"])
+        for _, row in g.iterrows():
+            ax.plot([0, 1], [row["baseline_rt_ms"], row["posttest_rt_ms"]],
+                    "o-", color=color, alpha=0.35)
+        if not g.empty:
+            mb = g["baseline_rt_ms"].mean(); mp = g["posttest_rt_ms"].mean()
+            ax.plot([0, 1], [mb, mp], "s-", color=color, markersize=12, linewidth=3,
+                    label=f"{group} (mean)")
+    ax.set_xticks([0, 1]); ax.set_xticklabels(["Baseline", "PostTest"])
+    ax.set_ylabel("RT (IQR-filtered mean, ms)")
+    ax.set_title("Pre/Post RT by Group")
     ax.legend()
-
-    plot_path = output_dir / "rt_pre_post.png"
     plt.tight_layout()
-    plt.savefig(plot_path, dpi=150)
-    plt.close()
-    plots.append(plot_path)
-
-    return plots
+    p = out_dir / "rt_pre_post.png"
+    plt.savefig(p, dpi=150); plt.close()
+    return [p]
 
 
-# =====================================================================
-# Calibration階段法の可視化
-# =====================================================================
-
-def plot_calibration_staircase(df: pd.DataFrame, output_dir: Path) -> List[Path]:
-    """
-    Calibrationフェーズの階段法データを可視化:
-    1. 各被験者の左右別Offset推移（階段プロット）
-    2. 全被験者のAgency回答 vs Offset（心理測定関数風）
-    """
-    plots = []
-    cal_data = df[df["Phase"] == "Calibration"].copy()
-    if cal_data.empty:
-        print("No Calibration data found.")
-        return plots
-
-    subjects = cal_data["SubjectID"].unique()
-
-    # ── 1. 被験者ごとの階段プロット ──
-    for subject in subjects:
-        sub_data = cal_data[cal_data["SubjectID"] == subject].sort_values("TrialNumber")
-
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
-
-        for i, side in enumerate(["Left", "Right"]):
-            ax = axes[i]
-            side_data = sub_data[sub_data["TargetSide"] == side]
-
-            if side_data.empty:
-                ax.set_title(f"{side} — No data")
-                continue
-
-            trials = range(1, len(side_data) + 1)
-            offsets = side_data["EMSOffset_ms"].values
-            agencies = side_data["AgencyYes"].values
-            corrects = side_data["IsCorrect"].values
-
-            # オフセット推移
-            ax.plot(trials, offsets, 'o-', color="steelblue", markersize=4, alpha=0.7)
-
-            # Agency回答をカラーマップで表示
-            for t, offset, agency, correct in zip(trials, offsets, agencies, corrects):
-                if not correct:
-                    ax.plot(t, offset, 'x', color="red", markersize=8, zorder=5)
-                else:
-                    color = "green" if agency else "red"  # True=緑(Yes), False=赤(No)
-                    ax.plot(t, offset, 'o', color=color, markersize=6, zorder=5)
-
-            ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-            ax.set_xlabel("Trial")
-            ax.set_ylabel("EMS Offset (ms)")
-            ax.set_title(f"{side} — Staircase")
-
-        plt.suptitle(f"{subject}: Calibration Staircase", fontsize=14)
-        plot_path = output_dir / f"calibration_staircase_{subject}.png"
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
-        plots.append(plot_path)
-
-    # ── 2. 全被験者集約: Offset vs Agency（心理測定関数風） ──
-    correct_cal = cal_data[cal_data["IsCorrect"] == 1].copy()
-    if len(correct_cal) > 10:
-        fig, ax = plt.subplots(figsize=(10, 6))
-
-        # Offsetを5ms幅でビン化
-        correct_cal["offset_bin"] = (correct_cal["EMSOffset_ms"] / 5).round() * 5
-        # Yes の割合を計算
-        correct_cal["agency_yes"] = correct_cal["AgencyYes"].astype(int)
-
-        binned = correct_cal.groupby("offset_bin").agg(
-            agency_rate=("agency_yes", "mean"),
-            n=("agency_yes", "count")
-        ).reset_index()
-
-        # 十分なデータがあるビンのみ
-        binned = binned[binned["n"] >= 3]
-
-        ax.plot(binned["offset_bin"], binned["agency_rate"],
-                'o-', color="steelblue", markersize=8)
-
-        # サンプルサイズをアノテーション
-        for _, row in binned.iterrows():
-            ax.annotate(f'n={int(row["n"])}',
-                       (row["offset_bin"], row["agency_rate"]),
-                       textcoords="offset points", xytext=(0, 10),
-                       fontsize=8, ha='center', alpha=0.7)
-
-        ax.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
-        ax.set_xlabel("EMS Offset (ms)")
-        ax.set_ylabel("P(Agency = Yes)")
-        ax.set_title("Psychometric Function: Agency vs EMS Offset (All Subjects)")
-        ax.set_ylim(-0.05, 1.05)
-
-        plot_path = output_dir / "calibration_psychometric.png"
-        plt.tight_layout()
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
-        plots.append(plot_path)
-
-    return plots
+def plot_sat_scatter(deltas: pd.DataFrame, out_dir: Path) -> list:
+    """ΔRT vs ΔAccuracy 散布図 — 速度-正答率トレードオフの可視化。"""
+    fig, ax = plt.subplots(figsize=(8, 7))
+    for group, color in [("AgencyEMS", "steelblue"), ("Voluntary", "coral")]:
+        g = deltas[deltas["Group"] == group].dropna(subset=["delta_rt_ms", "delta_acc"])
+        ax.scatter(g["delta_rt_ms"], g["delta_acc"], s=80, alpha=0.7,
+                   color=color, label=f"{group} (n={len(g)})")
+    ax.axhline(0, color="gray", ls="--", alpha=0.5)
+    ax.axvline(0, color="gray", ls="--", alpha=0.5)
+    ax.set_xlabel("ΔRT (ms)  ← faster")
+    ax.set_ylabel("ΔAccuracy  ↑ more accurate")
+    ax.set_title("Speed-Accuracy Change: ΔRT vs ΔAccuracy\n"
+                 "Lower-right = tradeoff; lower-left/upper = real improvement")
+    ax.legend()
+    plt.tight_layout()
+    p = out_dir / "sat_scatter.png"
+    plt.savefig(p, dpi=150); plt.close()
+    return [p]
 
 
 # =====================================================================
@@ -663,108 +460,87 @@ def plot_calibration_staircase(df: pd.DataFrame, output_dir: Path) -> List[Path]
 # =====================================================================
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Analyze CRT training effect with HDDM (V3)")
-    parser.add_argument("--data_dir", required=True,
-                        help="Root directory containing subject folders")
-    parser.add_argument("--outdir", required=True,
-                        help="Output directory")
-    parser.add_argument("--min_rt", type=float, default=100,
-                        help="Minimum valid RT (ms)")
-    parser.add_argument("--max_rt", type=float, default=1000,
-                        help="Maximum valid RT (ms)")
-    parser.add_argument("--skip_hddm", action="store_true",
-                        help="Skip HDDM analysis (faster)")
+    parser = argparse.ArgumentParser(description="CRT training effect + EZ-DDM (V3)")
+    parser.add_argument("--data_dir", required=True, help="ExperimentData root")
+    parser.add_argument("--outdir", required=True, help="Output directory")
+    parser.add_argument("--min_rt", type=float, default=100)
+    parser.add_argument("--max_rt", type=float, default=1000)
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
-    output_dir = Path(args.outdir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.outdir); out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── データ読み込み ──
     print("Loading subject data...")
     df = load_all_subjects(data_dir)
-    print(f"Loaded {len(df)} trials from {df['SubjectID'].nunique()} subjects")
+    print(f"Loaded {len(df)} trials, {df['SubjectID'].nunique()} subjects")
 
-    # ── 前処理 ──
-    df = preprocess(df, min_rt=args.min_rt, max_rt=args.max_rt)
+    df = preprocess(df, args.min_rt, args.max_rt)
     print(f"After preprocessing: {len(df)} trials")
 
-    # ── RT分布プロット（正答/誤答別）──
-    print("\nCreating RT distribution plots...")
-    rt_plots = plot_rt_distributions(df, output_dir)
-    print(f"Saved {len(rt_plots)} RT distribution plots")
+    print("\n[1/5] Computing per-subject summaries (RT, Accuracy, IES, EZ-DDM)...")
+    summary = compute_subject_summaries(df)
+    summary.to_csv(out_dir / "subject_phase_summary.csv", index=False)
 
-    # ── RT Gain計算 ──
-    print("\nComputing RT gains...")
-    gain_df = compute_rt_gain(df)
-    gain_df.to_csv(output_dir / "rt_gains.csv", index=False)
-    print(f"Computed gains for {len(gain_df)} subjects")
+    n_invalid = int((~summary["ez_valid"]).sum())
+    n_edge = int(summary["ez_edge_corrected"].sum())
+    print(f"  EZ-DDM: {len(summary) - n_invalid}/{len(summary)} valid, "
+          f"{n_edge} edge-corrected (P_correct=0 or 1)")
+    if n_invalid > 0:
+        print("  Invalid reasons:")
+        print(summary.loc[~summary["ez_valid"], ["SubjectID", "Phase", "ez_reason"]]
+              .to_string(index=False))
 
-    # ── 記述統計 ──
-    print("\n=== Descriptive Statistics ===")
-    desc_stats = gain_df.groupby("Group")["rt_gain"].agg(["mean", "std", "count"])
-    print(desc_stats)
-    desc_stats.to_csv(output_dir / "descriptive_stats.csv")
+    print("\n[2/5] Computing PostTest - Baseline deltas...")
+    deltas = compute_deltas(summary)
+    deltas.to_csv(out_dir / "deltas.csv", index=False)
 
-    # ── 群間比較 ──
-    print("\n=== Group Comparison ===")
-    comparison = run_group_comparison(gain_df)
+    print("\n[3/5] Group comparisons (AgencyEMS vs Voluntary, BH-FDR corrected)...")
+    tests = run_all_group_tests(deltas)
 
-    if "t_statistic" in comparison:
-        sig_fdr = "*" if comparison.get("significant_fdr", False) else ""
-        print(f"  AgencyEMS: {comparison['agency_mean']:.1f}±{comparison['agency_sd']:.1f}ms (n={comparison['agency_n']})")
-        print(f"  Voluntary: {comparison['voluntary_mean']:.1f}±{comparison['voluntary_sd']:.1f}ms (n={comparison['voluntary_n']})")
-        print(f"  t={comparison['t_statistic']:.2f}, p={comparison['p_value_uncorrected']:.4f}, "
-              f"p_fdr={comparison.get('p_value_fdr', 'N/A')}{sig_fdr}, d={comparison['cohens_d']:.2f}")
-        if "bf10" in comparison:
-            print(f"  BF10={comparison['bf10']:.2f}")
-        print(f"  (Correction: {comparison.get('correction_method', 'none')})")
+    print("\n=== Main tests ===")
+    for key in ["1a_delta_rt_ms", "1b_delta_acc", "1c_delta_ies_ms",
+                "2a_delta_a", "2b_delta_t_s", "2c_delta_v"]:
+        r = tests.get(key, {})
+        if "p_uncorrected" not in r:
+            print(f"  {key}: {r.get('reason', 'skipped')}")
+            continue
+        sig = "*" if r.get("significant_fdr") else " "
+        bf = f"  BF10={r['bf10']:.2f}" if "bf10" in r else ""
+        print(f"  {sig} {key}: {r['description']}")
+        print(f"      EMS={r['mean_a']:+.4g}±{r['sd_a']:.4g} (n={r['n_a']})  "
+              f"Volu={r['mean_b']:+.4g}±{r['sd_b']:.4g} (n={r['n_b']})")
+        print(f"      Δmean={r['mean_diff']:+.4g}  t={r['t']:+.3f}  "
+              f"p={r['p_uncorrected']:.4f}  p_fdr={r.get('p_fdr', float('nan')):.4f}  "
+              f"d={r['cohens_d']:+.3f}{bf}")
 
-    print("\n--- One-sample t-tests (Gain vs 0) ---")
-    for test in comparison.get("one_sample_tests", []):
-        sig_fdr = "*" if test.get("significant_fdr", False) else ""
-        bf_str = f", BF10={test['bf10']:.2f}" if "bf10" in test else ""
-        print(f"  {test['group']}: M={test['mean_gain']:.1f}ms, "
-              f"t={test['t_statistic']:.2f}, p={test['p_value_uncorrected']:.4f}, "
-              f"p_fdr={test.get('p_value_fdr', 'N/A')}{sig_fdr}{bf_str}")
+    print("\n=== Δt contribution to ΔRT (frac_t = Δt_ms / ΔRT_ms) ===")
+    for group, info in tests.get("_frac_t_of_rt", {}).items():
+        print(f"  {group}: mean={info['mean_frac_t']:+.3f}  "
+              f"median={info['median_frac_t']:+.3f}  (n={info['n']})")
 
-    # ── Gainプロット ──
-    print("\nCreating gain plots...")
-    gain_plots = create_gain_plots(gain_df, output_dir)
-    print(f"Saved {len(gain_plots)} gain plots")
+    print("\n[4/5] Saving plots...")
+    plots = []
+    plots += plot_rt_distributions(df, out_dir)
+    plots += plot_deltas_boxplot(deltas, out_dir)
+    plots += plot_pre_post(deltas, out_dir)
+    plots += plot_sat_scatter(deltas, out_dir)
+    print(f"  Saved {len(plots)} plots")
 
-    # ── HDDM解析 ──
-    hddm_results = None
-    if not args.skip_hddm:
-        # 全試行（正答+誤答）を使用（DDMでは誤答RTも情報源）
-        df_for_hddm = df.copy()
-        print(f"\nHDDM input: {len(df_for_hddm)} trials (including errors)")
-        hddm_results = run_hddm_analysis(df_for_hddm, output_dir)
-    else:
-        print("\nHDDM analysis skipped (--skip_hddm flag).")
-
-    # ── Calibration階段法の可視化 ──
-    print("\nAnalyzing Calibration staircase data...")
-    df_all = load_all_subjects(data_dir)  # 全フェーズ含む
-    cal_plots = plot_calibration_staircase(df_all, output_dir)
-    print(f"Saved {len(cal_plots)} calibration plots")
-
-    # ── 結果をJSONで保存 ──
-    results = {
+    print("\n[5/5] Writing JSON report...")
+    report = {
         "n_subjects": int(df["SubjectID"].nunique()),
-        "n_subjects_per_group": df.groupby("Group")["SubjectID"].nunique().to_dict(),
-        "total_trials": int(len(df)),
-        "group_comparison": comparison,
-        "hddm": hddm_results,
-        "plots": [str(p) for p in rt_plots + gain_plots + cal_plots]
+        "n_per_group": df.groupby("Group")["SubjectID"].nunique().to_dict(),
+        "n_trials_total": int(len(df)),
+        "ez_ddm_scale_s": EZ_SCALE,
+        "ez_valid_ratio": (len(summary) - n_invalid) / len(summary) if len(summary) else 0.0,
+        "ez_edge_corrected_count": n_edge,
+        "tests": tests,
+        "plots": [str(p) for p in plots],
     }
-
-    results_path = output_dir / "analysis_results.json"
-    with open(results_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2, default=str)
-
-    print(f"\nResults saved to {results_path}")
+    (out_dir / "analysis_results.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8")
+    print(f"Done. Results: {out_dir}")
 
 
 if __name__ == "__main__":

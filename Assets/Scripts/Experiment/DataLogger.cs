@@ -127,6 +127,7 @@ namespace ReactionTest.Experiment
                 row.TargetSide,
                 row.ResponseSide,
                 row.IsCorrect ? 1 : 0,
+                row.ReactionTimeMs.ToString("F3"),
                 row.EMSOffsetMs.ToString("F3"),
                 row.EMSFireTimingMs.ToString("F3"),
                 row.AgencyYes ? 1 : 0,
