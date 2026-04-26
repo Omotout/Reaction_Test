@@ -18,6 +18,18 @@
 両者を並行実行し、結論が一致すれば robustness が高い。齟齬があれば EZ の仮定
 (等分散・正規近似) を疑う材料になる。
 
+## 関連ドキュメント
+
+仮説と解析戦略の全体像については以下を参照:
+
+- **`HYPOTHESIS_AND_ANALYSIS_PLAN.md`** — 仮説階層 (H1/H2)、判断基準、結果報告の形式
+- **`HYPOTHESIS_DECISION_TREE.md`** — 結果パターン別の解釈フロー
+- **`ANALYSIS_PLAN_SUMMARY.md`** — 1ページサマリ (ミーティング向け)
+- **`EXPERIMENT_V3_DESIGN.md`** — 実験デザイン全体
+
+本スクリプトは **H2（DDM による機構分解）** を担当する。H1（観測指標の比較）は
+`analyze_training_effect.py` で実施する。
+
 ## 実行環境
 
 HDDM は Python 3.7-3.9 と PyMC 2 に依存し、OS によっては native build が難しい。
@@ -57,12 +69,16 @@ pip install matplotlib seaborn
 
 ## 主要な仮説とそれに対応する出力
 
+仮説の詳細は `HYPOTHESIS_AND_ANALYSIS_PLAN.md` を参照。本スクリプトの出力との対応:
+
 | 仮説 | 出力で見るべき値 |
 |---|---|
-| H1: AgencyEMS 群の ΔRT が Voluntary 群より大 | `observed_rt_deltas.csv` の群別平均差 |
-| H2: AgencyEMS 群で Δt が負 (非決定時間短縮) | `hddm_results.json` の `group_deltas.AgencyEMS.t.p_reduction` |
-| H3: Δa は群間差なし (速度-正答率トレードオフ否定) | `hddm_results.json` の `group_comparison.a.hdi_low/high` が 0 を含むか |
-| 分解: Δt は ΔRT の何割を説明するか | `frac_t_of_rt.csv` + `hddm_frac_t.png` |
+| **H1a**: ΔRT 群間差 (主仮説) | `observed_rt_deltas.csv` の群別平均差 |
+| **H2a**: Δa 群間で同等 (トレードオフ否定) | `hddm_results.json` の `group_comparison.a.hdi_low/high` が 0 を含み ROPE 内 |
+| **H2b**: Δt が EMS 群で短縮 (運動プライミング) | `hddm_results.json` の `group_comparison.t.p_a_larger_reduction` |
+| **H2c**: Δv の変化 (探索的) | `hddm_results.json` の `group_comparison.v` |
+| **H2d**: Δ決定時間 の変化 (探索的) | `hddm_results.json` の `group_comparison.decision_time` + `frac_decision_of_rt.csv` |
+| **分解**: frac_t = Δt / ΔRT | `frac_t_of_rt.csv` + `hddm_frac_t.png` |
 
 ## 出力ファイル
 
@@ -75,6 +91,7 @@ pip install matplotlib seaborn
 | `subject_traces_<group>.csv` | 被験者 × param × Phase の事後要約 |
 | `observed_rt_deltas.csv` | 被験者ごとの観測 ΔRT (IQR フィルタ平均差) |
 | `frac_t_of_rt.csv` | 被験者ごとの Δt / ΔRT |
+| `frac_decision_of_rt.csv` | 被験者ごとの Δ決定時間 / ΔRT |
 | `hddm_group_delta_posteriors.png` | 群レベル Δv, Δa, Δt の事後分布 |
 | `hddm_subject_deltas.png` | 被験者レベル Δ のボックスプロット |
 | `hddm_frac_t.png` | frac_t の群別分布 |

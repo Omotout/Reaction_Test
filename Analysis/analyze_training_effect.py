@@ -285,7 +285,13 @@ def independent_ttest(a: np.ndarray, b: np.ndarray) -> dict:
 
 
 def run_all_group_tests(deltas: pd.DataFrame) -> dict:
-    """AgencyEMS vs Voluntary の 6 主検定 + BH-FDR 補正。"""
+    """AgencyEMS vs Voluntary の 6 主検定 + BH-FDR 補正 (H1/H2 分離)。
+
+    多重比較補正は HYPOTHESIS_AND_ANALYSIS_PLAN.md §5 に準拠し、
+    H1 (1a, 1b, 1c) と H2 (2a, 2b, 2c) を別々に BH-FDR 補正する。
+    H1 と H2 を混合して一括補正すると、主仮説のパワーが
+    探索的検定の存在で penalty を受けるため分離する。
+    """
     agency = deltas[deltas["Group"] == "AgencyEMS"]
     volu = deltas[deltas["Group"] == "Voluntary"]
 
@@ -309,11 +315,22 @@ def run_all_group_tests(deltas: pd.DataFrame) -> dict:
             p_list.append(res["p_uncorrected"])
             name_list.append(key)
 
-    if len(p_list) >= 2:
-        _, p_corr, _, _ = multipletests(p_list, method="fdr_bh")
-        for key, pc in zip(name_list, p_corr):
-            results[key]["p_fdr"] = float(pc)
-            results[key]["significant_fdr"] = bool(pc < 0.05)
+    # H1 (1a, 1b, 1c) と H2 (2a, 2b, 2c) を分離して BH-FDR 補正
+    for tier_prefix, tier_label in [("1", "H1"), ("2", "H2")]:
+        tier_items = [(k, results[k]["p_uncorrected"])
+                      for k in name_list if k.startswith(tier_prefix)]
+        if len(tier_items) >= 2:
+            tier_keys, tier_pvals = zip(*tier_items)
+            _, p_corr, _, _ = multipletests(list(tier_pvals), method="fdr_bh")
+            for k, pc in zip(tier_keys, p_corr):
+                results[k]["p_fdr"] = float(pc)
+                results[k]["significant_fdr"] = bool(pc < 0.05)
+                results[k]["fdr_tier"] = tier_label
+        elif len(tier_items) == 1:
+            k, pval = tier_items[0]
+            results[k]["p_fdr"] = float(pval)
+            results[k]["significant_fdr"] = bool(pval < 0.05)
+            results[k]["fdr_tier"] = tier_label
 
     # One-sample vs 0 (各群 × ΔRT, Δt, Δa, Δv) — 参考情報として
     one_sample = {}

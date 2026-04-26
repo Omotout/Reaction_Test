@@ -73,10 +73,14 @@ namespace ReactionTest.Experiment
                 SubjectId = subjectId,
                 Group = groupType,
                 DatetimeStart = DateTime.UtcNow.ToString("o"),
-                AppVersion = Application.version
+                AppVersion = Application.version,
+                TrialListSeedPractice = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Practice),
+                TrialListSeedBaseline = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Baseline),
+                TrialListSeedTraining = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Training),
+                TrialListSeedPostTest = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.PostTest)
             };
 
-            // DataLoggerを初期化（セッションフォルダを使用）
+            // DataLoggerを初期化（セッションフォルダを使用、ここでsession_info.jsonが保存される）
             dataLogger.InitializeWithPath(session, sessionPath);
 
             // 既存のキャリブレーションデータがあれば読み込み
@@ -251,14 +255,20 @@ namespace ReactionTest.Experiment
                 $"練習セッションです。EMSなしでタスクに慣れてください。\n" +
                 $"緑 → 左クリック、赤 → 右クリック\n{trials} 試行");
 
+            // 事前に左右同数のシャッフル済みリストを生成
+            int seed = TrialListGenerator.DerivePhaseSeed(subjectId, _currentSessionPath ?? "Practice", PhaseType.Practice);
+            UserAction[] trialList = TrialListGenerator.GenerateBalanced(trials, seed);
+
             for (int i = 1; i <= trials; i++)
             {
+                UserAction targetSide = trialList[i - 1];
                 TrialRecord record = null;
                 yield return StartCoroutine(trialEngine.RunSingleTrial(
                     PhaseType.Practice,
                     i,
                     new EMSDecision(false, 0f, 0f),
-                    (r, _) => { record = r; FillSubjectInfo(record); }));
+                    (r, _) => { record = r; FillSubjectInfo(record); },
+                    forcedTargetSide: targetSide));
 
                 dataLogger.AppendTrial(record);
 
@@ -284,14 +294,20 @@ namespace ReactionTest.Experiment
             List<float> correctRTsLeft = new List<float>();
             List<float> correctRTsRight = new List<float>();
 
+            // 事前に左右同数のシャッフル済みリストを生成
+            int seed = TrialListGenerator.DerivePhaseSeed(subjectId, _currentSessionPath ?? "Baseline", PhaseType.Baseline);
+            UserAction[] trialList = TrialListGenerator.GenerateBalanced(trials, seed);
+
             for (int i = 1; i <= trials; i++)
             {
+                UserAction targetSide = trialList[i - 1];
                 TrialRecord record = null;
                 yield return StartCoroutine(trialEngine.RunSingleTrial(
                     PhaseType.Baseline,
                     i,
                     new EMSDecision(false, 0f, 0f),
-                    (r, _) => { record = r; FillSubjectInfo(record); }));
+                    (r, _) => { record = r; FillSubjectInfo(record); },
+                    forcedTargetSide: targetSide));
 
                 dataLogger.AppendTrial(record);
 
@@ -555,10 +571,14 @@ namespace ReactionTest.Experiment
                 $"介入フェーズです。\n{groupInfo}\n" +
                 $"緑 → 左クリック、赤 → 右クリック\n{trials} 試行");
 
+            // 事前に左右同数のシャッフル済みリストを生成
+            int seed = TrialListGenerator.DerivePhaseSeed(subjectId, _currentSessionPath ?? "Training", PhaseType.Training);
+            UserAction[] trialList = TrialListGenerator.GenerateBalanced(trials, seed);
+
             for (int i = 1; i <= trials; i++)
             {
-                // ターゲット側を事前にランダム決定
-                UserAction targetSide = TaskRule.PickTargetSide();
+                // ターゲット側をリストから取得
+                UserAction targetSide = trialList[i - 1];
 
                 // 左右別のBaselineRT・オフセット・レイテンシで正確なEMS発火タイミングを計算
                 EMSDecision decision = EMSPolicy.ComputeDecision(
@@ -601,14 +621,20 @@ namespace ReactionTest.Experiment
                 $"EMSなしで反応時間を測定します。\n" +
                 $"緑 → 左クリック、赤 → 右クリック\n{trials} 試行");
 
+            // 事前に左右同数のシャッフル済みリストを生成
+            int seed = TrialListGenerator.DerivePhaseSeed(subjectId, _currentSessionPath ?? "PostTest", PhaseType.PostTest);
+            UserAction[] trialList = TrialListGenerator.GenerateBalanced(trials, seed);
+
             for (int i = 1; i <= trials; i++)
             {
+                UserAction targetSide = trialList[i - 1];
                 TrialRecord record = null;
                 yield return StartCoroutine(trialEngine.RunSingleTrial(
                     PhaseType.PostTest,
                     i,
                     new EMSDecision(false, 0f, 0f),
-                    (r, _) => { record = r; FillSubjectInfo(record); }));
+                    (r, _) => { record = r; FillSubjectInfo(record); },
+                    forcedTargetSide: targetSide));
 
                 dataLogger.AppendTrial(record);
 
