@@ -32,11 +32,11 @@ namespace ReactionTest.Experiment
         [SerializeField] private float feedbackDurationSec = 0.8f;
 
         [Header("Phase Trial Counts (Inspector で変更可)")]
-        [SerializeField] private int practiceTrials = 15;
-        [SerializeField] private int baselineTrials = 40;
-        [SerializeField] private int emsLatencyTrialsPerSide = 15;
-        [SerializeField] private int trainingTrials = 40;
-        [SerializeField] private int postTestTrials = 40;
+        [SerializeField] private int practiceTrials = 50;
+        [SerializeField] private int baselineTrials = 80;
+        [SerializeField] private int emsLatencyTrialsPerSide = 10;
+        [SerializeField] private int trainingTrials = 60;
+        [SerializeField] private int postTestTrials = 80;
 
 
 
