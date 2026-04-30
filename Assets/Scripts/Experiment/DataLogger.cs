@@ -24,6 +24,7 @@ namespace ReactionTest.Experiment
 
         private string _outputDir;
         private string _trialPath;
+        private bool _includeInterventionColumns = true;
 
         // メモリバッファ: フェーズ終了時に FlushBuffer() で一括書き出し
         private readonly List<TrialRecord> _buffer = new List<TrialRecord>();
@@ -34,6 +35,9 @@ namespace ReactionTest.Experiment
         /// </summary>
         private const string CsvHeader =
             "SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,EMSOffset_ms,EMSFireTiming_ms,AgencyYes,Timestamp";
+
+        private const string TestCsvHeader =
+            "SubjectID,Group,Phase,TrialNumber,TargetSide,ResponseSide,IsCorrect,ReactionTime_ms,Timestamp";
 
         /// <summary>
         /// 従来の初期化（後方互換性用）
@@ -49,8 +53,9 @@ namespace ReactionTest.Experiment
         /// <summary>
         /// 指定されたパスに初期化（SubjectDataManager連携用）
         /// </summary>
-        public void InitializeWithPath(SessionMeta session, string outputDir)
+        public void InitializeWithPath(SessionMeta session, string outputDir, bool includeInterventionColumns = true)
         {
+            _includeInterventionColumns = includeInterventionColumns;
             _outputDir = outputDir;
             Directory.CreateDirectory(_outputDir);
 
@@ -59,7 +64,8 @@ namespace ReactionTest.Experiment
             // CSVヘッダーを書き込み（ファイルが存在しない場合のみ）
             if (!File.Exists(_trialPath))
             {
-                File.WriteAllText(_trialPath, CsvHeader + Environment.NewLine, Encoding.UTF8);
+                string header = _includeInterventionColumns ? CsvHeader : TestCsvHeader;
+                File.WriteAllText(_trialPath, header + Environment.NewLine, Encoding.UTF8);
             }
 
             // セッション情報をsession_info.jsonとして保存
@@ -119,6 +125,20 @@ namespace ReactionTest.Experiment
         /// </summary>
         private string FormatTrialLine(TrialRecord row)
         {
+            if (!_includeInterventionColumns)
+            {
+                return string.Join(",",
+                    CsvEscape(row.SubjectId),
+                    CsvEscape(row.Group.ToString()),
+                    CsvEscape(row.Phase.ToString()),
+                    row.TrialNumber.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    CsvEscape(row.TargetSide.ToString()),
+                    CsvEscape(row.ResponseSide.ToString()),
+                    row.IsCorrect ? "1" : "0",
+                    row.ReactionTimeMs.ToString("F3", System.Globalization.CultureInfo.InvariantCulture),
+                    CsvEscape(row.Timestamp));
+            }
+
             return string.Join(",",
                 CsvEscape(row.SubjectId),
                 CsvEscape(row.Group.ToString()),

@@ -38,9 +38,15 @@ namespace ReactionTest.Experiment
         [SerializeField] private string subjectId = "P001";
         [SerializeField] private GroupType groupType = GroupType.AgencyEMS;
 
+        [Header("Run Mode")]
+        [SerializeField] private ExperimentRunMode runMode = ExperimentRunMode.FullExperiment;
+
         [Header("Calibration Safety")]
         [Tooltip("Calibrationフェーズの最大試行数（無限ループ防止）")]
         [SerializeField] private int maxCalibrationTrials = 80;
+
+        private const int TestGameTrials = 80;
+        private string _currentSessionPath;
 
         // ============================================================
         // ランタイム保持: EMSLatencyフェーズで測定したレイテンシ
@@ -56,17 +62,25 @@ namespace ReactionTest.Experiment
 
         // 緊急停止フラグ
         private bool _experimentAborted = false;
+        private string _lastTestSummary = string.Empty;
 
         private IEnumerator Start()
         {
             ValidateReferences();
+            if (!enabled) yield break;
 
-            // 被験者データを読み込みまたは新規作成
-            // 既存被験者の場合、保存済みGroupが優先される（Inspector値との不一致はSubjectDataManager側でエラーログ）
-            groupType = subjectDataManager.LoadOrCreateSubject(subjectId, groupType);
+            // 本実験では被験者データを読み込みまたは新規作成する。
+            // テストモードでは ExperimentData を触らず、Inspector の subjectId/groupType だけを記録に使う。
+            if (runMode == ExperimentRunMode.FullExperiment)
+            {
+                groupType = subjectDataManager.LoadOrCreateSubject(subjectId, groupType);
+            }
 
             // セッションフォルダを作成
-            string sessionPath = subjectDataManager.CreateSessionFolder();
+            string sessionPath = runMode == ExperimentRunMode.TestGame
+                ? subjectDataManager.CreateTestSessionFolder(subjectId)
+                : subjectDataManager.CreateSessionFolder();
+            _currentSessionPath = sessionPath;
 
             SessionMeta session = new SessionMeta
             {
@@ -74,14 +88,30 @@ namespace ReactionTest.Experiment
                 Group = groupType,
                 DatetimeStart = DateTime.UtcNow.ToString("o"),
                 AppVersion = Application.version,
+                RunMode = runMode.ToString(),
                 TrialListSeedPractice = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Practice),
                 TrialListSeedBaseline = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Baseline),
                 TrialListSeedTraining = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Training),
-                TrialListSeedPostTest = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.PostTest)
+                TrialListSeedPostTest = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.PostTest),
+                TrialListSeedTest = TrialListGenerator.DerivePhaseSeed(subjectId, sessionPath, PhaseType.Test)
             };
 
             // DataLoggerを初期化（セッションフォルダを使用、ここでsession_info.jsonが保存される）
-            dataLogger.InitializeWithPath(session, sessionPath);
+            dataLogger.InitializeWithPath(
+                session,
+                sessionPath,
+                includeInterventionColumns: runMode == ExperimentRunMode.FullExperiment);
+
+            if (runMode == ExperimentRunMode.TestGame)
+            {
+                yield return RunTestGame();
+                if (_experimentAborted) { yield return HandleAbort(); yield break; }
+
+                yield return ShowPhaseTransition("テスト終了", _lastTestSummary);
+                Debug.Log("Test game finished.");
+                Debug.Log($"Logs: {dataLogger.GetOutputDirectory()}");
+                yield break;
+            }
 
             // 既存のキャリブレーションデータがあれば読み込み
             LoadCalibrationDataFromSubject();
@@ -112,9 +142,12 @@ namespace ReactionTest.Experiment
 
         private void ValidateReferences()
         {
-            if (trialEngine == null || agencySurveyUI == null || dataLogger == null || subjectDataManager == null)
+            bool missingCoreReferences = trialEngine == null || dataLogger == null || subjectDataManager == null;
+            bool missingFullExperimentReferences = runMode == ExperimentRunMode.FullExperiment && agencySurveyUI == null;
+
+            if (missingCoreReferences || missingFullExperimentReferences)
             {
-                Debug.LogError("ExperimentOrchestrator: assign TrialEngine, AgencySurveyUI, DataLogger, SubjectDataManager.");
+                Debug.LogError("ExperimentOrchestrator: assign TrialEngine, DataLogger, SubjectDataManager, and AgencySurveyUI for FullExperiment.");
                 enabled = false;
             }
         }
@@ -242,6 +275,66 @@ namespace ReactionTest.Experiment
             Debug.Log($"Loaded calibration: OffsetL={config.OffsetLeft}ms, OffsetR={config.OffsetRight}ms, " +
                       $"BaselineL={config.BaselineRTLeft}ms, BaselineR={config.BaselineRTRight}ms, " +
                       $"LatencyL={config.EMSLatencyLeft}ms, LatencyR={config.EMSLatencyRight}ms");
+        }
+
+        // ============================================================
+        // Test Game: 80 trials, balanced red/green, Ctrl/right-arrow response
+        // ============================================================
+
+        private IEnumerator RunTestGame()
+        {
+            int trials = TestGameTrials;
+            yield return ShowPhaseTransition("テストモード",
+                $"赤と緑が40回ずつランダムに出ます。\n" +
+                $"緑 → Ctrlキー、赤 → 右矢印キー\n{trials} 試行");
+
+            int seed = TrialListGenerator.DerivePhaseSeed(subjectId, _currentSessionPath ?? "Test", PhaseType.Test);
+            UserAction[] trialList = TrialListGenerator.GenerateBalanced(trials, seed);
+
+            List<float> validRTs = new List<float>();
+            List<float> correctRTs = new List<float>();
+            int correctCount = 0;
+            int omissionCount = 0;
+
+            for (int i = 1; i <= trials; i++)
+            {
+                UserAction targetSide = trialList[i - 1];
+                TrialRecord record = null;
+                yield return StartCoroutine(trialEngine.RunSingleTrial(
+                    PhaseType.Test,
+                    i,
+                    new EMSDecision(false, 0f, 0f),
+                    (r, _) => { record = r; FillSubjectInfo(record); },
+                    forcedTargetSide: targetSide,
+                    inputMode: TrialInputMode.CtrlAndRightArrow));
+
+                dataLogger.AppendTrial(record);
+
+                if (record.IsCorrect) correctCount++;
+                if (record.ResponseSide == UserAction.None) omissionCount++;
+                if (record.ReactionTimeMs > 0f) validRTs.Add(record.ReactionTimeMs);
+                if (record.IsCorrect && record.ReactionTimeMs > 0f) correctRTs.Add(record.ReactionTimeMs);
+
+                CheckAbortState();
+                if (_experimentAborted) yield break;
+            }
+
+            dataLogger.FlushBuffer();
+
+            float accuracy = trials > 0 ? (float)correctCount / trials * 100f : 0f;
+            float meanRT = validRTs.Count > 0 ? validRTs.Average() : 0f;
+            float meanCorrectRT = correctRTs.Count > 0 ? correctRTs.Average() : 0f;
+
+            _lastTestSummary =
+                $"正答率: {accuracy:F1}% ({correctCount}/{trials})\n" +
+                $"平均RT(全反応): {meanRT:F1} ms\n" +
+                $"平均RT(正答のみ): {meanCorrectRT:F1} ms\n" +
+                $"無反応: {omissionCount}\n" +
+                $"ログ: {dataLogger.GetOutputDirectory()}";
+
+            Debug.Log($"Test summary: trials={trials}, green/ctrl=40, red/rightArrow=40, " +
+                      $"accuracy={accuracy:F1}%, correct={correctCount}/{trials}, omissions={omissionCount}, " +
+                      $"meanRT(all responses)={meanRT:F1}ms, meanRT(correct)={meanCorrectRT:F1}ms");
         }
 
         // ============================================================

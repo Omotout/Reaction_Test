@@ -35,14 +35,17 @@ namespace ReactionTest.Experiment
     public class SubjectDataManager : MonoBehaviour
     {
         [SerializeField] private string dataFolderName = "ExperimentData";
+        [SerializeField] private string testDataFolderName = "TestData";
 
         private string _rootPath;
+        private string _testRootPath;
         private SubjectConfig _currentConfig;
         private string _currentSessionPath;
 
         public SubjectConfig CurrentConfig => _currentConfig;
         public string CurrentSessionPath => _currentSessionPath;
         public string RootPath => _rootPath;
+        public string TestRootPath => _testRootPath;
         public bool HasCalibrationData => _currentConfig != null && _currentConfig.CalibrationCompleted;
 
         private void Awake()
@@ -51,13 +54,10 @@ namespace ReactionTest.Experiment
             // Application.dataPath = {ProjectRoot}/Assets
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             _rootPath = Path.Combine(projectRoot, dataFolderName);
-
-            if (!Directory.Exists(_rootPath))
-            {
-                Directory.CreateDirectory(_rootPath);
-            }
+            _testRootPath = Path.Combine(projectRoot, testDataFolderName);
 
             Debug.Log($"SubjectDataManager: Data root = {_rootPath}");
+            Debug.Log($"SubjectDataManager: Test data root = {_testRootPath}");
         }
 
         /// <summary>
@@ -126,6 +126,31 @@ namespace ReactionTest.Experiment
 
             SaveConfig();
             Debug.Log($"Created session folder: {_currentSessionPath}");
+            return _currentSessionPath;
+        }
+
+        /// <summary>
+        /// テスト用データを保存する専用セッションフォルダを作成
+        /// 保存先: TestData/{SubjectId}/test_XX_yyyyMMdd_HHmmss
+        /// </summary>
+        public string CreateTestSessionFolder(string subjectId)
+        {
+            if (string.IsNullOrWhiteSpace(subjectId))
+            {
+                Debug.LogError("Subject ID is empty. Set subjectId before creating a test session.");
+                return null;
+            }
+
+            string subjectPath = GetTestSubjectPath(subjectId);
+            Directory.CreateDirectory(subjectPath);
+
+            int nextSessionNumber = GetNextTestSessionNumber(subjectPath);
+
+            string sessionFolder = $"test_{nextSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
+            _currentSessionPath = Path.Combine(subjectPath, sessionFolder);
+            Directory.CreateDirectory(_currentSessionPath);
+
+            Debug.Log($"Created test session folder: {_currentSessionPath}");
             return _currentSessionPath;
         }
 
@@ -214,6 +239,33 @@ namespace ReactionTest.Experiment
         private string GetSubjectPath(string subjectId)
         {
             return Path.Combine(_rootPath, subjectId);
+        }
+
+        private string GetTestSubjectPath(string subjectId)
+        {
+            return Path.Combine(_testRootPath, subjectId);
+        }
+
+        private int GetNextTestSessionNumber(string subjectPath)
+        {
+            if (!Directory.Exists(subjectPath))
+            {
+                return 1;
+            }
+
+            int maxSessionNumber = Directory.GetDirectories(subjectPath)
+                .Select(Path.GetFileName)
+                .Where(name => name.StartsWith("test_"))
+                .Select(name =>
+                {
+                    string[] parts = name.Split('_');
+                    if (parts.Length < 2) return 0;
+                    return int.TryParse(parts[1], out int value) ? value : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return maxSessionNumber + 1;
         }
 
         private void SaveConfig()

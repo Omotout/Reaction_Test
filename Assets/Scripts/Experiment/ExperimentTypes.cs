@@ -5,9 +5,9 @@ namespace ReactionTest.Experiment
     // ========================================================================
     // V3: CRT特化リファクタリング
     // - TaskType (SRT/DRT/CRT) を完全削除 → 常にCRT（左右2択）
-    // - ExperimentRunMode を削除 → 単一6フェーズシーケンス
+    // - ExperimentRunMode で本実験/テスト用ゲームモードを切り替え
     // - StimulusColor を削除 → TargetSide (Left/Right) で表現
-    // - PhaseType を6フェーズに拡張（Practice, EMSLatency 追加）
+    // - PhaseType に通常6フェーズとテスト用フェーズを定義
     // ========================================================================
 
     /// <summary>
@@ -19,8 +19,21 @@ namespace ReactionTest.Experiment
         Voluntary
     }
 
+    public enum ExperimentRunMode
+    {
+        FullExperiment,
+        TestGame
+    }
+
+    public enum TrialInputMode
+    {
+        MouseButtons,
+        ArrowKeys,
+        CtrlAndRightArrow
+    }
+
     /// <summary>
-    /// 実験フェーズ（6段階）
+    /// 実験フェーズ
     /// Practice → Baseline → EMSLatency → Calibration → Training → PostTest
     /// </summary>
     public enum PhaseType
@@ -30,7 +43,8 @@ namespace ReactionTest.Experiment
         EMSLatency,     // EMSレイテンシ測定: 視覚刺激なし、左右各15〜20試行
         Calibration,    // Agency閾値探索: EMSあり、-80〜+20ms/10ms刻み
         Training,       // 介入: 群別EMS適用、30〜50試行
-        PostTest        // HDDM事後測定: EMSなし、30〜50試行
+        PostTest,       // HDDM事後測定: EMSなし、30〜50試行
+        Test            // テスト用ゲームモード: EMSなし、Ctrl/右矢印入力
     }
 
     /// <summary>

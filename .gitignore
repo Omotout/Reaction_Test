@@ -6,6 +6,7 @@
 [Bb]uilds/
 [Ll]ogs/
 [Uu]ser[Ss]ettings/
+/Reaction_Test/
 
 # MemoryCaptures
 [Mm]emoryCaptures/
@@ -55,6 +56,8 @@ crashlytics-build.properties
 
 # Experiment data (per-subject data - don't commit)
 ExperimentData/
+TestData/
+Analysis/results*/
 
 # Python
 __pycache__/
@@ -71,6 +74,8 @@ ENV/
 # IDE
 .idea/
 .vscode/
+*.csproj
+*.slnx
 *.swp
 *.swo
 *~

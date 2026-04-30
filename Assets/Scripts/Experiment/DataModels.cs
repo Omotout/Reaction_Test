@@ -17,12 +17,14 @@ namespace ReactionTest.Experiment
         public GroupType Group;
         public string DatetimeStart;
         public string AppVersion;
+        public string RunMode;
 
         // ランダム化のシード値（再現性用）
         public int TrialListSeedPractice;
         public int TrialListSeedBaseline;
         public int TrialListSeedTraining;
         public int TrialListSeedPostTest;
+        public int TrialListSeedTest;
     }
 
     /// <summary>

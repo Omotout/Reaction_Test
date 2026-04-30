@@ -79,25 +79,31 @@ namespace ReactionTest.Experiment
 
         private void Awake()
         {
+            HideStimulusImmediate();
+            HideFeedbackImmediate();
+
             // 高精度タイミングのためフレームレートを最大化
-            int refreshRate = Screen.currentResolution.refreshRate;
-            int targetFps = Mathf.Max(refreshRate * 2, 120);
+            double refreshRate = Screen.currentResolution.refreshRateRatio.value;
+            int targetFps = Mathf.Max(Mathf.RoundToInt((float)refreshRate * 2f), 120);
             Application.targetFrameRate = targetFps;
             QualitySettings.vSyncCount = 0;
-            UnityEngine.Debug.Log($"TrialEngine: Display {refreshRate}Hz → Target FPS: {targetFps}");
+            UnityEngine.Debug.Log($"TrialEngine: Display {refreshRate:F2}Hz → Target FPS: {targetFps}");
+        }
+
+        private void OnValidate()
+        {
+            if (!Application.isPlaying)
+            {
+                HideStimulusImmediate();
+                HideFeedbackImmediate();
+            }
         }
 
         private void Start()
         {
             // 初期状態で刺激を非表示
-            if (stimulusImage != null)
-            {
-                stimulusImage.gameObject.SetActive(false);
-            }
-            if (feedbackText != null)
-            {
-                feedbackText.gameObject.SetActive(false);
-            }
+            HideStimulusImmediate();
+            HideFeedbackImmediate();
         }
 
         public void SetEMSController(EMSController controller)
@@ -124,7 +130,8 @@ namespace ReactionTest.Experiment
             int trialIndex,
             EMSDecision emsDecision,
             Action<TrialRecord, UserAction> onCompleted,
-            UserAction forcedTargetSide = UserAction.None)
+            UserAction forcedTargetSide = UserAction.None,
+            TrialInputMode inputMode = TrialInputMode.MouseButtons)
         {
             if (stimulusImage == null)
             {
@@ -163,7 +170,6 @@ namespace ReactionTest.Experiment
             UserAction action = UserAction.None;
             double reactionTimeMs = -1.0;
             
-            var mouse = Mouse.current;
             var keyboard = Keyboard.current;
 
             while (_reactionStopwatch.Elapsed.TotalSeconds < responseWindowSec)
@@ -177,21 +183,10 @@ namespace ReactionTest.Experiment
                     break;
                 }
 
-                if (mouse != null)
+                if (TryReadResponse(inputMode, out action))
                 {
-                    if (mouse.leftButton.wasPressedThisFrame)
-                    {
-                        action = UserAction.Left;
-                        reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
-                        break;
-                    }
-
-                    if (mouse.rightButton.wasPressedThisFrame)
-                    {
-                        action = UserAction.Right;
-                        reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
-                        break;
-                    }
+                    reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
+                    break;
                 }
 
                 yield return null;
@@ -373,6 +368,84 @@ namespace ReactionTest.Experiment
             yield return new WaitForSeconds(feedbackDurationSec);
 
             feedbackText.gameObject.SetActive(false);
+        }
+
+        private bool TryReadResponse(TrialInputMode inputMode, out UserAction action)
+        {
+            action = UserAction.None;
+
+            if (inputMode == TrialInputMode.CtrlAndRightArrow)
+            {
+                var keyboard = Keyboard.current;
+                if (keyboard == null) return false;
+
+                if (keyboard.leftCtrlKey.wasPressedThisFrame || keyboard.rightCtrlKey.wasPressedThisFrame)
+                {
+                    action = UserAction.Left;
+                    return true;
+                }
+
+                if (keyboard.rightArrowKey.wasPressedThisFrame)
+                {
+                    action = UserAction.Right;
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (inputMode == TrialInputMode.ArrowKeys)
+            {
+                var keyboard = Keyboard.current;
+                if (keyboard == null) return false;
+
+                if (keyboard.leftArrowKey.wasPressedThisFrame)
+                {
+                    action = UserAction.Left;
+                    return true;
+                }
+
+                if (keyboard.rightArrowKey.wasPressedThisFrame)
+                {
+                    action = UserAction.Right;
+                    return true;
+                }
+
+                return false;
+            }
+
+            var mouse = Mouse.current;
+            if (mouse == null) return false;
+
+            if (mouse.leftButton.wasPressedThisFrame)
+            {
+                action = UserAction.Left;
+                return true;
+            }
+
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                action = UserAction.Right;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void HideStimulusImmediate()
+        {
+            if (stimulusImage != null)
+            {
+                stimulusImage.gameObject.SetActive(false);
+            }
+        }
+
+        private void HideFeedbackImmediate()
+        {
+            if (feedbackText != null)
+            {
+                feedbackText.gameObject.SetActive(false);
+            }
         }
 
         /// <summary>
