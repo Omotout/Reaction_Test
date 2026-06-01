@@ -1,31 +1,24 @@
-using System;
-using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.IO.Ports;
-using System.Threading;
 using UnityEngine;
 using Debug = UnityEngine.Debug;
 
 namespace ReactionTest.Experiment
 {
     /// <summary>
-    /// EMS制御クラス
-    /// Arduino DUE + L298N (H-Bridge) を使用した2相性パルス刺激を制御
-    /// 
-    /// Arduinoコマンド仕様:
-    /// - "L": 左チャンネル発火（撓屈）
-    /// - "R": 右チャンネル発火（尺屈）
-    /// - "Wnn": パルス幅設定 (20-1000 µs)
-    /// - "Cnn": パルス連射回数 (1-100)
-    /// - "Bnn": バーストサイクル数 (1-20)
-    /// - "Innnn": パルス間隔 (0-100000 µs)
+    /// EMS制御クラス（安全層）。
+    /// シリアルは <see cref="ArduinoLink"/>（単一所有者）へ委譲し、本クラスは発火の安全機構
+    /// （不応期・最大発火回数・緊急停止）と波形パラメータ（強度）の管理に専念する。
+    /// 安全判定は純粋ロジックの <see cref="EmsSafetyGate"/> に委譲。
+    ///
+    /// 送信コマンドは ArduinoProtocol 経由（integrated_full系）:
+    /// - 手動発火: "EMS:L" / "EMS:R"
+    /// - 波形設定: "EMSCFG,&lt;width&gt;,&lt;count&gt;,&lt;burst&gt;,&lt;interval&gt;"
     /// </summary>
     public class EMSController : MonoBehaviour
     {
-        [Header("Hardware Settings")]
-        [Tooltip("Arduinoのポート名 (例: COM5, /dev/tty.usbmodem...)")]
-        [SerializeField] private string portName = "COM5";
-        [SerializeField] private int baudRate = 9600;
+        [Header("Link")]
+        [Tooltip("シリアル所有者。未設定ならシーンから自動取得。")]
+        [SerializeField] private ArduinoLink arduinoLink;
 
         [Header("EMS Config (Biphasic Pulse)")]
         [Tooltip("EMS刺激を有効にする")]
@@ -53,11 +46,11 @@ namespace ReactionTest.Experiment
         [Tooltip("チェックを入れると右用の刺激をテスト発火")]
         [SerializeField] private bool testTriggerRight = false;
 
-        // シリアル通信
-        private SerialPort _serialPort;
-        private ConcurrentQueue<string> _serialQueue = new ConcurrentQueue<string>();
-        private Thread _serialThread;
-        private volatile bool _serialRunning = false;
+        [Header("Safety")]
+        [Tooltip("連続発火の最小間隔（ms）")]
+        [SerializeField] private int refractoryPeriodMs = 200;
+        [Tooltip("1セッションあたりの最大発火回数")]
+        [SerializeField] private int maxFiresPerSession = 500;
 
         // パラメータ変更検知用
         private int _lastSentWidth;
@@ -65,28 +58,30 @@ namespace ReactionTest.Experiment
         private int _lastSentBurst;
         private int _lastSentInterval;
 
-        // 接続状態
-        private bool _isConnected = false;
+        // 安全機構（時刻源 + 純粋判定ロジック）
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private EmsSafetyGate _gate;
 
-        // ── 安全機構 ──
-        private readonly Stopwatch _refractoryWatch = Stopwatch.StartNew();
-        private long _lastFireMs = -1000;
-        private int _sessionFireCount = 0;
-        private bool _emergencyStopped = false;
-
-        [Header("Safety")]
-        [Tooltip("連続発火の最小間隔（ms）")]
-        [SerializeField] private int refractoryPeriodMs = 200;
-        [Tooltip("1セッションあたりの最大発火回数")]
-        [SerializeField] private int maxFiresPerSession = 500;
-
-        public bool IsConnected => _isConnected;
+        public bool IsConnected => arduinoLink != null && arduinoLink.IsConnected;
         public bool IsEnabled => emsEnabled;
+
+        private void Awake()
+        {
+            _gate = new EmsSafetyGate(refractoryPeriodMs, maxFiresPerSession);
+        }
 
         private void Start()
         {
-            SetupSerial();
-            if (_isConnected)
+            if (arduinoLink == null)
+            {
+                arduinoLink = FindFirstObjectByType<ArduinoLink>();
+            }
+            if (arduinoLink == null)
+            {
+                Debug.LogWarning("EMS Controller: ArduinoLink が見つかりません。EMS発火は無効です。");
+                return;
+            }
+            if (IsConnected)
             {
                 SendEMSConfig();
             }
@@ -98,42 +93,67 @@ namespace ReactionTest.Experiment
             HandleTestTriggers();
 
             // 設定変更の監視（インスペクタで数値を変えたら即送信）
-            if (_isConnected && HasConfigChanged())
+            if (IsConnected && HasConfigChanged())
             {
                 SendEMSConfig();
             }
         }
 
-        private void OnDestroy()
-        {
-            CleanupResources();
-        }
-
-        private void OnApplicationQuit()
-        {
-            CleanupResources();
-        }
-
         /// <summary>
         /// 左チャンネル（撓屈）のEMS発火
         /// </summary>
-        public void TriggerLeft()
-        {
-            if (!CanFire()) return;
-            RecordFire();
-            EnqueueCommand("L");
-            UnityEngine.Debug.Log($"EMS Trigger: Left (#{_sessionFireCount})");
-        }
+        public void TriggerLeft() => Fire(UserAction.Left);
 
         /// <summary>
         /// 右チャンネル（尺屈）のEMS発火
         /// </summary>
-        public void TriggerRight()
+        public void TriggerRight() => Fire(UserAction.Right);
+
+        /// <summary>
+        /// チャンネル指定でEMS発火
+        /// </summary>
+        public void Trigger(UserAction action)
         {
-            if (!CanFire()) return;
-            RecordFire();
-            EnqueueCommand("R");
-            UnityEngine.Debug.Log($"EMS Trigger: Right (#{_sessionFireCount})");
+            if (action == UserAction.Left || action == UserAction.Right)
+            {
+                Fire(action);
+            }
+        }
+
+        /// <summary>
+        /// 安全チェックを通過したら ArduinoLink 経由で手動EMSコマンドを送る。
+        /// </summary>
+        private void Fire(UserAction side)
+        {
+            if (!emsEnabled) return; // 無効・緊急停止後はここで弾く（ログなし＝従来挙動）
+
+            if (arduinoLink == null)
+            {
+                Debug.LogWarning("EMS: ArduinoLink 未設定。発火できません。");
+                return;
+            }
+
+            // インスペクタ値の実行時変更を反映
+            _gate.RefractoryPeriodMs = refractoryPeriodMs;
+            _gate.MaxFiresPerSession = maxFiresPerSession;
+
+            switch (_gate.TryFire(_clock.ElapsedMilliseconds))
+            {
+                case EmsSafetyGate.Result.Allowed:
+                    arduinoLink.SendEmsManual(side);
+                    Debug.Log($"EMS Trigger: {side} (#{_gate.FireCount})");
+                    break;
+                case EmsSafetyGate.Result.LimitReached:
+                    Debug.LogError($"EMS: Session fire limit ({maxFiresPerSession}) reached. Disabling.");
+                    emsEnabled = false;
+                    break;
+                case EmsSafetyGate.Result.Refractory:
+                    Debug.LogWarning($"EMS: Refractory period (< {refractoryPeriodMs}ms). Blocked.");
+                    break;
+                case EmsSafetyGate.Result.EmergencyStopped:
+                    // 既に停止済み。何もしない。
+                    break;
+            }
         }
 
         /// <summary>
@@ -141,56 +161,10 @@ namespace ReactionTest.Experiment
         /// </summary>
         public void EmergencyStop()
         {
-            _emergencyStopped = true;
+            _gate?.EmergencyStop();
             emsEnabled = false;
-            UnityEngine.Debug.LogError($"EMS: EMERGENCY STOP activated. Total fires this session: {_sessionFireCount}");
-        }
-
-        /// <summary>
-        /// 安全チェック: 不応期・最大発火回数・緊急停止
-        /// </summary>
-        private bool CanFire()
-        {
-            if (_emergencyStopped || !emsEnabled) return false;
-
-            if (_sessionFireCount >= maxFiresPerSession)
-            {
-                UnityEngine.Debug.LogError($"EMS: Session fire limit ({maxFiresPerSession}) reached. Disabling.");
-                emsEnabled = false;
-                return false;
-            }
-
-            long now = _refractoryWatch.ElapsedMilliseconds;
-            long elapsed = now - _lastFireMs;
-            if (elapsed < refractoryPeriodMs)
-            {
-                UnityEngine.Debug.LogWarning($"EMS: Refractory period ({elapsed}ms < {refractoryPeriodMs}ms). Blocked.");
-                return false;
-            }
-
-            return true;
-        }
-
-        private void RecordFire()
-        {
-            _lastFireMs = _refractoryWatch.ElapsedMilliseconds;
-            _sessionFireCount++;
-        }
-
-        /// <summary>
-        /// チャンネル指定でEMS発火
-        /// </summary>
-        public void Trigger(UserAction action)
-        {
-            switch (action)
-            {
-                case UserAction.Left:
-                    TriggerLeft();
-                    break;
-                case UserAction.Right:
-                    TriggerRight();
-                    break;
-            }
+            int fired = _gate != null ? _gate.FireCount : 0;
+            Debug.LogError($"EMS: EMERGENCY STOP activated. Total fires this session: {fired}");
         }
 
         /// <summary>
@@ -211,7 +185,7 @@ namespace ReactionTest.Experiment
             burstCount = Mathf.Clamp(burst, 1, 20);
             pulseInterval = Mathf.Clamp(interval, 0, 100000);
 
-            if (_isConnected)
+            if (IsConnected)
             {
                 SendEMSConfig();
             }
@@ -241,10 +215,9 @@ namespace ReactionTest.Experiment
 
         private void SendEMSConfig()
         {
-            EnqueueCommand($"W{pulseWidth}");
-            EnqueueCommand($"C{pulseCount}");
-            EnqueueCommand($"B{burstCount}");
-            EnqueueCommand($"I{pulseInterval}");
+            if (arduinoLink == null) return;
+
+            arduinoLink.SendEmsConfig(pulseWidth, pulseCount, burstCount, pulseInterval);
 
             _lastSentWidth = pulseWidth;
             _lastSentCount = pulseCount;
@@ -252,77 +225,6 @@ namespace ReactionTest.Experiment
             _lastSentInterval = pulseInterval;
 
             Debug.Log($"EMS Config sent: W={pulseWidth}µs, C={pulseCount}, B={burstCount}, I={pulseInterval}µs");
-        }
-
-        private void EnqueueCommand(string command)
-        {
-            _serialQueue.Enqueue(command);
-        }
-
-        private void SetupSerial()
-        {
-            try
-            {
-                _serialPort = new SerialPort(portName, baudRate);
-                _serialPort.Open();
-                _serialPort.ReadTimeout = 50;
-                _isConnected = true;
-                Debug.Log($"EMS Controller: Serial port {portName} connected");
-
-                // バックグラウンドスレッドでシリアル送信を処理
-                _serialRunning = true;
-                _serialThread = new Thread(SerialWorker);
-                _serialThread.IsBackground = true;
-                _serialThread.Start();
-            }
-            catch (Exception e)
-            {
-                _isConnected = false;
-                Debug.LogWarning($"EMS Controller: Arduino not connected (simulation mode) - {e.Message}");
-            }
-        }
-
-        private void SerialWorker()
-        {
-            while (_serialRunning)
-            {
-                if (_serialQueue.TryDequeue(out string message))
-                {
-                    try
-                    {
-                        if (_serialPort != null && _serialPort.IsOpen)
-                        {
-                            _serialPort.WriteLine(message);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogWarning($"EMS Controller: Serial send error - {e.Message}");
-                    }
-                }
-                else
-                {
-                    Thread.Sleep(1);
-                }
-            }
-        }
-
-        private void CleanupResources()
-        {
-            // シリアルスレッド停止
-            _serialRunning = false;
-            if (_serialThread != null && _serialThread.IsAlive)
-            {
-                _serialThread.Join(500);
-            }
-
-            // シリアルポートを閉じる
-            if (_serialPort != null && _serialPort.IsOpen)
-            {
-                _serialPort.Close();
-            }
-
-            Debug.Log("EMS Controller: Resources cleaned up");
         }
     }
 }
