@@ -98,10 +98,10 @@ namespace ReactionTest.Experiment
         }
 
         // ---- 送信API ----
-        public void SendTrial(StimColor led, UserAction resp, UserAction emsSide, int emsDelayUs)
-            => Enqueue(ArduinoProtocol.FormatTrial(led, resp, emsSide, emsDelayUs));
+        public void SendTrial(int id, StimColor led, UserAction resp, UserAction emsSide, int emsDelayUs)
+            => Enqueue(ArduinoProtocol.FormatTrial(id, led, resp, emsSide, emsDelayUs));
 
-        public void SendEmsLatency(UserAction side) => Enqueue(ArduinoProtocol.FormatEmsLatency(side));
+        public void SendEmsLatency(int id, UserAction side) => Enqueue(ArduinoProtocol.FormatEmsLatency(id, side));
         public void SendThreshold(UserAction side, int value) => Enqueue(ArduinoProtocol.FormatThreshold(side, value));
         public void SendEmsConfig(int width, int count, int burst, int interval)
             => Enqueue(ArduinoProtocol.FormatEmsConfig(width, count, burst, interval));

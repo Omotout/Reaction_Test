@@ -77,34 +77,36 @@ ExperimentOrchestrator（司令塔）
 ## 3. 新旧 シリアルプロトコル対応表（Unity↔Arduino 契約）
 
 > Arduino本体は別途実装。Unityは下表の送信文字列とパース規則を実装し、Arduinoはこれに整合させる。すべて行ベース・`\n`終端・115200bps。座標系：`R`=右手, `L`=左手, `Red`/`Green(YG)`。時間はµs。
+>
+> **シーケンスID（`<id>`）**: TRIAL/EMSLAT には単調増加の整数 `<id>` を載せる。**Arduinoは対応する結果(TRIAL_RESULT/EMSLAT_RESULT)で同じ `<id>` を必ずエコーする**こと。Unityは期待idと一致する結果のみ採用し、タイムアウト後に届く前試行の遅延結果を破棄して試行ずれ（RTの1試行ずれ）を防ぐ（Phase C+D コードレビュー指摘で追加）。
 
 ### Unity → Arduino
 
 | 用途 | 旧 (`Arduino_ReactionTest_EMS.ino`) | 新（本計画） | Arduino動作 |
 |---|---|---|---|
-| トライアル（Pre/Post, EMSなし） | （なし。Unityが画面提示） | `TRIAL,<led>,<resp>,N,0` | ledを点灯しt0=micros()。respタッチ待ち。検出で`TRIAL_RESULT`返信 |
-| トライアル（Training, EMSあり） | （なし） | `TRIAL,<led>,<resp>,<emsSide>,<emsDelayUs>` | 同上＋t0+emsDelayUsにemsSideへEMS発火 |
-| EMSレイテンシ計測 | 旧はUnipoll（視覚なしEMS→マウス） | `EMSLAT,<side>` | LEDなしでsideにEMS発火、t0=EMS onset、sideタッチまで計測。`EMSLAT_RESULT`返信 |
+| トライアル（Pre/Post, EMSなし） | （なし。Unityが画面提示） | `TRIAL,<id>,<led>,<resp>,N,0` | ledを点灯しt0=micros()。respタッチ待ち。検出で`TRIAL_RESULT`返信（idエコー） |
+| トライアル（Training, EMSあり） | （なし） | `TRIAL,<id>,<led>,<resp>,<emsSide>,<emsDelayUs>` | 同上＋t0+emsDelayUsにemsSideへEMS発火 |
+| EMSレイテンシ計測 | 旧はUnipoll（視覚なしEMS→マウス） | `EMSLAT,<id>,<side>` | LEDなしでsideにEMS発火、t0=EMS onset、sideタッチまで計測。`EMSLAT_RESULT`返信（idエコー） |
 | タッチ閾値設定（固定） | （なし） | `THR,<side>,<value>` | side電極の検出閾値を設定 |
 | EMS強度設定 | `W../C../B../I..` | `EMSCFG,<width>,<count>,<burst>,<interval>` | 波形パラメータ設定（強度調整用） |
 | LED消灯/全停止 | `L`/`R`即時発火 | `LED:OFF` / `RESET` | 消灯・全停止 |
 | EMS手動テスト | `L` / `R` | `EMS:R` / `EMS:L` | 単発EMS（強度確認用） |
 | 状態確認 | `?` | `STATUS` | 現在値を返信 |
 
-`<led>`∈{R,G}、`<resp>`∈{R,L}、`<emsSide>`∈{R,L,N}（N=EMSなし）。
+`<id>`は正の整数（セッション内で単調増加）、`<led>`∈{R,G}、`<resp>`∈{R,L}、`<emsSide>`∈{R,L,N}（N=EMSなし）。
 
 ### Arduino → Unity
 
 | 場面 | 返信フォーマット | 例 |
 |---|---|---|
-| トライアル完了 | `TRIAL_RESULT,<touchedSide>,<rtUs>,<peak>,<emsFired>` | `TRIAL_RESULT,R,243187,58,1` |
-| トライアル無反応 | `TRIAL_RESULT,NONE,-1,0,<emsFired>` | `TRIAL_RESULT,NONE,-1,0,0` |
-| EMSレイテンシ完了 | `EMSLAT_RESULT,<side>,<latencyUs>` | `EMSLAT_RESULT,R,52310` |
-| EMSレイテンシ無反応 | `EMSLAT_RESULT,<side>,-1` | `EMSLAT_RESULT,L,-1` |
+| トライアル完了 | `TRIAL_RESULT,<id>,<touchedSide>,<rtUs>,<peak>,<emsFired>` | `TRIAL_RESULT,12,R,243187,58,1` |
+| トライアル無反応 | `TRIAL_RESULT,<id>,NONE,-1,0,<emsFired>` | `TRIAL_RESULT,12,NONE,-1,0,0` |
+| EMSレイテンシ完了 | `EMSLAT_RESULT,<id>,<side>,<latencyUs>` | `EMSLAT_RESULT,4,R,52310` |
+| EMSレイテンシ無反応 | `EMSLAT_RESULT,<id>,<side>,-1` | `EMSLAT_RESULT,4,L,-1` |
 | コマンドACK | `OK:<cmd>` | `OK:THR:R:30` |
 | 状態 | `STATUS:...` | |
 
-> `touchedSide`が`resp`と一致＝正答。`rtUs`/`latencyUs`は µs。Unityは ms(小数) に変換して記録。
+> `<id>`は受信した TRIAL/EMSLAT の値をそのまま返す（必須）。`touchedSide`が`resp`と一致＝正答。`rtUs`/`latencyUs`は µs。Unityは ms(小数) に変換して記録。Arduinoは1つの TRIAL/EMSLAT につき結果を**ちょうど1行**返すこと（タッチ検出 or 自前タイムアウトで NONE）。
 
 ---
 

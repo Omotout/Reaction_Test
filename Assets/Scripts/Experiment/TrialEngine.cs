@@ -30,9 +30,14 @@ namespace ReactionTest.Experiment
         private bool _hasLatResult;
         private EmsLatencyResult _lastLatResult;
 
+        // 送信ごとに単調増加するシーケンスID。結果はこのIDと一致するものだけ採用し、
+        // タイムアウト後に届く前試行の遅延結果（試行ずれの原因）を破棄する。
+        private int _seq;
+        private int _expectedTrialId;
+        private int _expectedLatId;
+
         private bool _isAborted;
         public bool IsAborted => _isAborted;
-        public void ResetAbort() => _isAborted = false;
 
         public void SetArduinoLink(ArduinoLink link) => arduinoLink = link;
         public void SetEMSController(EMSController c) => emsController = c;
@@ -56,8 +61,27 @@ namespace ReactionTest.Experiment
             }
         }
 
-        private void HandleTrialResult(TrialResult r) { _lastTrialResult = r; _hasTrialResult = true; }
-        private void HandleLatResult(EmsLatencyResult r) { _lastLatResult = r; _hasLatResult = true; }
+        private void HandleTrialResult(TrialResult r)
+        {
+            if (r.Id != _expectedTrialId)
+            {
+                UnityEngine.Debug.LogWarning($"TrialEngine: discarding stale TRIAL_RESULT id={r.Id} (expected {_expectedTrialId}).");
+                return;
+            }
+            _lastTrialResult = r;
+            _hasTrialResult = true;
+        }
+
+        private void HandleLatResult(EmsLatencyResult r)
+        {
+            if (r.Id != _expectedLatId)
+            {
+                UnityEngine.Debug.LogWarning($"TrialEngine: discarding stale EMSLAT_RESULT id={r.Id} (expected {_expectedLatId}).");
+                return;
+            }
+            _lastLatResult = r;
+            _hasLatResult = true;
+        }
 
         public IEnumerator RunTrial(
             PhaseType phase, int trialIndex, StimColor color, UserAction correctHand,
@@ -65,12 +89,14 @@ namespace ReactionTest.Experiment
             Action<TrialRecord> onCompleted)
         {
             HideFeedback();
+            int id = ++_seq;
+            _expectedTrialId = id;
             _hasTrialResult = false;
 
             if (arduinoLink != null)
-                arduinoLink.SendTrial(color, correctHand, emsSide, emsDelayUs);
+                arduinoLink.SendTrial(id, color, correctHand, emsSide, emsDelayUs);
             else
-                UnityEngine.Debug.Log($"[Sim] TRIAL {color}/{correctHand} ems={emsSide}@{emsDelayUs}us");
+                UnityEngine.Debug.Log($"[Sim] TRIAL#{id} {color}/{correctHand} ems={emsSide}@{emsDelayUs}us");
 
             float deadline = Time.realtimeSinceStartup + resultTimeoutSec;
             var keyboard = Keyboard.current;
@@ -120,10 +146,12 @@ namespace ReactionTest.Experiment
         public IEnumerator RunEMSLatencyTrial(UserAction side, int trialIndex, Action<float> onLatencyMs)
         {
             HideFeedback();
+            int id = ++_seq;
+            _expectedLatId = id;
             _hasLatResult = false;
 
-            if (arduinoLink != null) arduinoLink.SendEmsLatency(side);
-            else UnityEngine.Debug.Log($"[Sim] EMSLAT {side}");
+            if (arduinoLink != null) arduinoLink.SendEmsLatency(id, side);
+            else UnityEngine.Debug.Log($"[Sim] EMSLAT#{id} {side}");
 
             float deadline = Time.realtimeSinceStartup + resultTimeoutSec;
             var keyboard = Keyboard.current;
