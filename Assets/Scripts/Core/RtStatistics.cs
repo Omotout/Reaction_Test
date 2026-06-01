@@ -7,7 +7,8 @@ namespace ReactionTest.Experiment
     /// <summary>RT分布の純粋統計ユーティリティ（UnityEngine非依存・テスト容易）。</summary>
     public static class RtStatistics
     {
-        /// <summary>線形補間パーセンタイル（p: 0..1）。入力は非破壊（内部でソートコピー）。</summary>
+        /// <summary>線形補間パーセンタイル。入力は非破壊（内部でソートコピー）。
+        /// p は [0,1] の範囲であること（範囲外は IndexOutOfRange になりうる）。</summary>
         public static float Percentile(IEnumerable<float> values, float p)
         {
             var sorted = values.OrderBy(v => v).ToList();

@@ -43,5 +43,24 @@ namespace ReactionTest.Experiment.Tests
             Assert.AreEqual(0f, RtStatistics.Q10(new List<float>()));
             Assert.AreEqual(0f, RtStatistics.Median(new List<float>()));
         }
+
+        [Test]
+        public void Classify_UpperSdBound_PromotesToLapse()
+        {
+            // upperSdBound>0 のとき lapseMax 以下でも上限超過は Lapse（個人内+3SD用）
+            Assert.AreEqual(ExclusionFlag.Lapse,  RtStatistics.Classify(700f, 150f, 1000f, 600f));
+            Assert.AreEqual(ExclusionFlag.Normal, RtStatistics.Classify(500f, 150f, 1000f, 600f));
+            // upperSdBound<=0 は無効（センチネル）。同じ700msでも Normal に戻る
+            Assert.AreEqual(ExclusionFlag.Normal, RtStatistics.Classify(700f, 150f, 1000f, 0f));
+        }
+
+        [Test]
+        public void MeanAndSampleStdDev_EmptyAndSingle()
+        {
+            Assert.AreEqual(0f, RtStatistics.Mean(new List<float>()));
+            Assert.AreEqual(4f, RtStatistics.Mean(new List<float>{2,4,6}), 1e-4f);
+            Assert.AreEqual(0f, RtStatistics.SampleStdDev(new List<float>()));
+            Assert.AreEqual(0f, RtStatistics.SampleStdDev(new List<float>{42}));
+        }
     }
 }
