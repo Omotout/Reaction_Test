@@ -63,6 +63,14 @@ ExperimentData/
 TestData/
 Analysis/results*/
 
+# Generated dummy data (regenerable via make_dummy_data.py)
+ExperimentData_dummy*/
+
+# Pre-experiment power-analysis outputs (regenerable by re-running hddm_sim scripts)
+hddm_sim/results_*/
+hddm_sim/__pycache__/
+hddm_sim/MCMC.pickle
+
 # Python
 __pycache__/
 *.py[cod]
