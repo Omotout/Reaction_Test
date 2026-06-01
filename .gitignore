@@ -38,6 +38,10 @@
 # Unity3D generated file on crash reports
 sysinfo.txt
 
+# Batchmode test run artifacts
+test_results.xml
+test_run.log
+
 # Builds
 *.apk
 *.aab
