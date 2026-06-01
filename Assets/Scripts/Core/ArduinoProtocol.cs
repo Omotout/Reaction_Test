@@ -1,0 +1,103 @@
+using System.Globalization;
+
+namespace ReactionTest.Experiment
+{
+    /// <summary>Arduino→Unity のトライアル結果（RTはms、µsから変換済み）。</summary>
+    public struct TrialResult
+    {
+        public UserAction TouchedSide; // Left/Right、タイムアウト時 None
+        public float RtMs;             // タイムアウト時 -1
+        public int Peak;
+        public bool EmsFired;
+        public bool TimedOut;
+    }
+
+    /// <summary>Arduino→Unity の EMS_to_Touch 計測結果（msに変換済み）。</summary>
+    public struct EmsLatencyResult
+    {
+        public UserAction Side;
+        public float LatencyMs;        // タイムアウト時 -1
+        public bool TimedOut;
+    }
+
+    /// <summary>
+    /// Unity↔Arduino 行ベース・プロトコルの正本（コマンド整形＋応答パース）。純粋ロジック・UnityEngine非依存。
+    /// Arduinoファームウェア(integrated_full系)はこの文字列仕様に整合させること。
+    /// 時間はArduino側でµs、Unity側でms(float)に変換する。
+    /// ピン対応: LED赤=D11, LED緑(YG)=D12, タッチ右=D9/左=D10, EMS左=D3,4/右=D5,6。
+    /// </summary>
+    public static class ArduinoProtocol
+    {
+        public const string LedOff = "LEDOFF";
+        public const string Reset  = "RESET";
+        public const string Status = "STATUS";
+
+        public static string Side(UserAction s) => s == UserAction.Left ? "L" : "R";
+        public static string Color(StimColor c) => c == StimColor.Red ? "R" : "G";
+
+        // ---- Unity → Arduino ----
+        public static string FormatTrial(StimColor led, UserAction resp, UserAction emsSide, int emsDelayUs)
+        {
+            string ems = (emsSide == UserAction.None) ? "N" : Side(emsSide);
+            return string.Format(CultureInfo.InvariantCulture,
+                "TRIAL,{0},{1},{2},{3}", Color(led), Side(resp), ems, emsDelayUs);
+        }
+
+        public static string FormatEmsLatency(UserAction side) => "EMSLAT," + Side(side);
+
+        public static string FormatThreshold(UserAction side, int value)
+            => string.Format(CultureInfo.InvariantCulture, "THR,{0},{1}", Side(side), value);
+
+        public static string FormatEmsConfig(int widthUs, int count, int burst, int intervalUs)
+            => string.Format(CultureInfo.InvariantCulture, "EMSCFG,{0},{1},{2},{3}", widthUs, count, burst, intervalUs);
+
+        public static string FormatEmsManual(UserAction side) => "EMS," + Side(side);
+
+        // ---- Arduino → Unity ----
+        public static bool TryParseTrialResult(string line, out TrialResult result)
+        {
+            result = default;
+            if (string.IsNullOrEmpty(line)) return false;
+            string[] p = line.Trim().Split(',');
+            if (p.Length < 5 || p[0] != "TRIAL_RESULT") return false;
+
+            if (p[1] == "NONE")
+            {
+                result.TouchedSide = UserAction.None;
+                result.RtMs = -1f;
+                result.TimedOut = true;
+            }
+            else if (p[1] == "R" || p[1] == "L")
+            {
+                result.TouchedSide = (p[1] == "R") ? UserAction.Right : UserAction.Left;
+                if (!long.TryParse(p[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long rtUs))
+                    return false;
+                result.RtMs = rtUs / 1000f;
+                result.TimedOut = false;
+            }
+            else return false;
+
+            if (!int.TryParse(p[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out int peak))
+                return false;
+            result.Peak = peak;
+            result.EmsFired = (p[4] == "1");
+            return true;
+        }
+
+        public static bool TryParseEmsLatency(string line, out EmsLatencyResult result)
+        {
+            result = default;
+            if (string.IsNullOrEmpty(line)) return false;
+            string[] p = line.Trim().Split(',');
+            if (p.Length < 3 || p[0] != "EMSLAT_RESULT") return false;
+            if (p[1] != "R" && p[1] != "L") return false;
+
+            result.Side = (p[1] == "R") ? UserAction.Right : UserAction.Left;
+            if (!long.TryParse(p[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long us))
+                return false;
+            if (us < 0) { result.LatencyMs = -1f; result.TimedOut = true; }
+            else { result.LatencyMs = us / 1000f; result.TimedOut = false; }
+            return true;
+        }
+    }
+}
