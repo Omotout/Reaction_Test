@@ -32,12 +32,12 @@ namespace ReactionTest.Experiment
         public int EmsPulseWidthUs = 50;
         public int EmsPulseCount = 1;
         public int EmsBurstCount = 3;
-        public int EmsPulseIntervalUs = 40000;
+        public int EmsPulseIntervalUs = 40000; // 40 ms
 
         // 除外基準（Unity記録時はanticipation/lapseMaxのみ。+3SDはPython側）
         public float RtAnticipationMs = 150f;
         public float RtLapseMaxMs = 1000f;
-        public float LapseSdMultiplier = 3f;
+        public float LapseSdMultiplier = 3f;   // 個人内+3SD用。Python解析側でのみ使用（Unity実行時は未使用）
 
         // EMS_to_Touch 安定性（標本SDがこの値未満なら安定）
         public float EmsToTouchStabilitySdMs = 4f;
@@ -45,13 +45,26 @@ namespace ReactionTest.Experiment
         // 応答タイムアウト（ms）
         public float ResponseTimeoutMs = 2000f;
 
+        /// <summary>
+        /// 設定ファイルを読み込む。存在しなければ既定値を書き出して返す。
+        /// 不正なJSON（手編集ミス等）は黙って既定値で上書きせず、明示メッセージで例外送出する
+        /// （設定取り違えのまま実験が走るのを防ぐため）。IO例外もそのまま伝播する。
+        /// </summary>
         public static ExperimentConfig LoadOrCreate(string path)
         {
             if (File.Exists(path))
             {
                 string json = File.ReadAllText(path);
-                var cfg = JsonUtility.FromJson<ExperimentConfig>(json);
-                if (cfg != null) return cfg;
+                try
+                {
+                    // JsonUtility はクラス型に対し null を返さない（不正JSONは ArgumentException を送出）。
+                    return JsonUtility.FromJson<ExperimentConfig>(json);
+                }
+                catch (ArgumentException e)
+                {
+                    throw new InvalidOperationException(
+                        $"experiment_config.json の解析に失敗しました（書式を確認してください）: {path}", e);
+                }
             }
             var def = new ExperimentConfig();
             File.WriteAllText(path, JsonUtility.ToJson(def, true));
