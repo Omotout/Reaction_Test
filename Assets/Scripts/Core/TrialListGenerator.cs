@@ -67,5 +67,24 @@ namespace ReactionTest.Experiment
                 return hash;
             }
         }
+
+        /// <summary>赤/緑同数のシャッフル済み刺激色リストを生成（Fisher-Yates, System.Random(seed)）。</summary>
+        public static StimColor[] GenerateBalancedColors(int totalTrials, int seed)
+        {
+            if (totalTrials <= 0) return new StimColor[0];
+            int half = totalTrials / 2;
+            var list = new StimColor[totalTrials];
+            for (int i = 0; i < half; i++) list[i] = StimColor.Red;
+            for (int i = half; i < totalTrials; i++) list[i] = StimColor.Green;
+            var rng = new System.Random(seed);
+            int n = list.Length;
+            while (n > 1)
+            {
+                n--;
+                int k = rng.Next(n + 1);
+                (list[k], list[n]) = (list[n], list[k]);
+            }
+            return list;
+        }
     }
 }
