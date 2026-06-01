@@ -95,6 +95,11 @@ namespace ReactionTest.Experiment
             _q10L = RtStatistics.Q10(preL);
             _q10R = RtStatistics.Q10(preR);
             Debug.Log($"Q10 Left={_q10L:F1}ms (n={preL.Count}), Right={_q10R:F1}ms (n={preR.Count})");
+            if (preL.Count < 5 || preR.Count < 5)
+            {
+                Debug.LogWarning($"Pre correct-trial count is low (L={preL.Count}, R={preR.Count}). " +
+                                 $"Q10 may be unreliable; EMS fire timing for a side with 0 correct trials would clamp to 0.");
+            }
 
             // ── EMSLatency（EMS条件のみ）──
             _e2tL = 0f; _e2tR = 0f;
@@ -223,6 +228,7 @@ namespace ReactionTest.Experiment
 
         private IEnumerator MeasureLatencySide(UserAction side, int perSide, Action<float> store)
         {
+            bool gotValid = false;
             for (int attempt = 1; attempt <= 3; attempt++)
             {
                 var lat = new List<float>();
@@ -237,11 +243,18 @@ namespace ReactionTest.Experiment
                     if (trialEngine.IsAborted) { _aborted = true; yield break; }
                 }
 
+                if (lat.Count == 0)
+                {
+                    Debug.LogWarning($"EMS_to_Touch {side}: no valid samples (attempt {attempt}/3).");
+                    continue; // 0msを保存しない（下のガードで中断判定）
+                }
+
+                gotValid = true;
                 float median = RtStatistics.Median(lat);
                 float sd = RtStatistics.SampleStdDev(lat);
                 store(median);
 
-                if (lat.Count > 0 && sd < _config.EmsToTouchStabilitySdMs)
+                if (sd < _config.EmsToTouchStabilitySdMs)
                 {
                     Debug.Log($"EMS_to_Touch {side}: {median:F1}ms (SD={sd:F2}, n={lat.Count}) stable.");
                     yield break;
@@ -249,7 +262,16 @@ namespace ReactionTest.Experiment
                 Debug.LogWarning($"EMS_to_Touch {side} unstable (SD={sd:F2} >= {_config.EmsToTouchStabilitySdMs}ms, " +
                                  $"attempt {attempt}/3). Re-measuring.");
             }
-            Debug.LogWarning($"EMS_to_Touch {side}: stability not reached after 3 attempts. Using last median.");
+
+            if (!gotValid)
+            {
+                // 有効サンプルが一つも得られない＝EMS_to_Touch=0ms起点で通電する危険を避け、セッションを中断。
+                Debug.LogError($"EMS_to_Touch {side}: NO valid latency samples after 3 attempts. Aborting session " +
+                               $"to avoid firing EMS off a 0ms latency. Check electrode contact / EMS intensity / touch threshold.");
+                _aborted = true;
+                yield break;
+            }
+            Debug.LogWarning($"EMS_to_Touch {side}: stability not reached after 3 attempts. Using last valid median.");
         }
 
         private IEnumerator ShowTransition(string phaseName, string instruction)

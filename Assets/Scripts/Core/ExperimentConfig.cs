@@ -42,9 +42,6 @@ namespace ReactionTest.Experiment
         // EMS_to_Touch 安定性（標本SDがこの値未満なら安定）
         public float EmsToTouchStabilitySdMs = 4f;
 
-        // 応答タイムアウト（ms）
-        public float ResponseTimeoutMs = 2000f;
-
         /// <summary>
         /// 設定ファイルを読み込む。存在しなければ既定値を書き出して返す。
         /// 不正なJSON（手編集ミス等）は黙って既定値で上書きせず、明示メッセージで例外送出する

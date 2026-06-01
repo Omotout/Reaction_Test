@@ -50,7 +50,7 @@ namespace ReactionTest.Experiment.Tests
                 Assert.AreEqual(80, reread.PreTrials);
                 Assert.AreEqual(30, reread.EmsLatencyTrials);
                 Assert.AreEqual(40000, reread.EmsPulseIntervalUs);
-                Assert.AreEqual(2000f, reread.ResponseTimeoutMs);
+                Assert.AreEqual(4f, reread.EmsToTouchStabilitySdMs);
             }
             finally { if (File.Exists(path)) File.Delete(path); }
         }
