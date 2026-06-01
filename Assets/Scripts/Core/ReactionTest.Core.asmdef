@@ -1,0 +1,12 @@
+{
+    "name": "ReactionTest.Core",
+    "rootNamespace": "ReactionTest.Experiment",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "noEngineReferences": false
+}

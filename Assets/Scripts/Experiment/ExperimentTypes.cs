@@ -48,17 +48,6 @@ namespace ReactionTest.Experiment
     }
 
     /// <summary>
-    /// ユーザー入力（左クリック / 右クリック / 無入力）
-    /// CRT特化後もターゲット側・応答側の表現として使用
-    /// </summary>
-    public enum UserAction
-    {
-        None,
-        Left,
-        Right
-    }
-
-    /// <summary>
     /// エラー種別（CRT特化版）
     /// Commission は廃止（CRTでは常に左右どちらかを押す）
     /// </summary>
