@@ -1,0 +1,11 @@
+{
+    "name": "ReactionTest.Core.Tests",
+    "rootNamespace": "ReactionTest.Experiment.Tests",
+    "references": ["ReactionTest.Core"],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "overrideReferences": true,
+    "precompiledReferences": ["nunit.framework.dll"],
+    "autoReferenced": false,
+    "defineConstraints": ["UNITY_INCLUDE_TESTS"]
+}
