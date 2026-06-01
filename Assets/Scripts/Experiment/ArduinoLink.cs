@@ -26,7 +26,7 @@ namespace ReactionTest.Experiment
         private readonly ConcurrentQueue<string> _txQueue = new ConcurrentQueue<string>();
         private readonly ConcurrentQueue<string> _rxQueue = new ConcurrentQueue<string>();
 
-        private bool _isConnected;
+        private volatile bool _isConnected;
         public bool IsConnected => _isConnected;
 
         // メインスレッドで購読する受信イベント（Update から発火）
@@ -34,7 +34,7 @@ namespace ReactionTest.Experiment
         public event Action<EmsLatencyResult> OnEmsLatencyResult;
         public event Action<string> OnOtherLine;
 
-        /// <summary>ポート名/ボーレートを起動前に上書きする（任意）。</summary>
+        /// <summary>ポート名/ボーレートを上書きする。必ず Start() より前に呼ぶこと（開いた後は無効）。</summary>
         public void Configure(string port, int baud)
         {
             portName = port;
@@ -52,6 +52,7 @@ namespace ReactionTest.Experiment
             {
                 _port = new SerialPort(portName, baudRate);
                 _port.ReadTimeout = readTimeoutMs;
+                _port.WriteTimeout = 1000; // Arduino無応答/バッファ詰まり時の TX 無限ハングを防ぐ
                 _port.NewLine = "\n";
                 _port.Open();
                 _isConnected = true;
@@ -147,6 +148,8 @@ namespace ReactionTest.Experiment
                 catch (TimeoutException) { /* 通常: 読み取りタイムアウトは無視 */ }
                 catch (Exception e)
                 {
+                    // Cleanup() の port.Close() が ReadLine 実行中に割り込むと例外になるが、
+                    // シャットダウン中(_running==false)は想定内なのでログを抑制する。
                     if (_running) Debug.LogWarning($"ArduinoLink RX error: {e.Message}");
                     Thread.Sleep(5);
                 }
