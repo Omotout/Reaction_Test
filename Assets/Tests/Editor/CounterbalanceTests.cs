@@ -14,6 +14,11 @@ namespace ReactionTest.Experiment.Tests
             Assert.AreEqual(SRMapping.RedRight,             Counterbalance.MappingFor(0));
             Assert.AreEqual(SRMapping.RedRight,             Counterbalance.MappingFor(1));
             Assert.AreEqual(SRMapping.RedLeft,              Counterbalance.MappingFor(2));
+            // 4群目（index 3）と循環（index 4 で index 0 と一致）も確認
+            Assert.AreEqual(ConditionOrder.VoluntaryFirst,  Counterbalance.OrderFor(3));
+            Assert.AreEqual(SRMapping.RedLeft,              Counterbalance.MappingFor(3));
+            Assert.AreEqual(ConditionOrder.EmsFirst,        Counterbalance.OrderFor(4));
+            Assert.AreEqual(SRMapping.RedRight,             Counterbalance.MappingFor(4));
         }
 
         [Test]
@@ -25,6 +30,18 @@ namespace ReactionTest.Experiment.Tests
                 Counterbalance.ConditionForSession(ConditionOrder.EmsFirst, 2));
             Assert.AreEqual(ExperimentCondition.Voluntary,
                 Counterbalance.ConditionForSession(ConditionOrder.VoluntaryFirst, 1));
+            // 4象限目（VoluntaryFirst の第2セッション → EMS）も確認
+            Assert.AreEqual(ExperimentCondition.EMS,
+                Counterbalance.ConditionForSession(ConditionOrder.VoluntaryFirst, 2));
+        }
+
+        [Test]
+        public void ConditionForSession_InvalidSession_Throws()
+        {
+            Assert.Throws<System.ArgumentOutOfRangeException>(
+                () => Counterbalance.ConditionForSession(ConditionOrder.EmsFirst, 0));
+            Assert.Throws<System.ArgumentOutOfRangeException>(
+                () => Counterbalance.ConditionForSession(ConditionOrder.EmsFirst, 3));
         }
 
         [Test]
