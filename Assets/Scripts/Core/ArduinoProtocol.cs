@@ -25,14 +25,25 @@ namespace ReactionTest.Experiment
     /// Arduinoファームウェア(integrated_full系)はこの文字列仕様に整合させること。
     /// 時間はArduino側でµs、Unity側でms(float)に変換する。
     /// ピン対応: LED赤=D11, LED緑(YG)=D12, タッチ右=D9/左=D10, EMS左=D3,4/右=D5,6。
+    ///
+    /// コマンド表記の規約:
+    ///   - integrated_full.ino に既存のコマンドはコロン式のまま踏襲（LED:OFF / EMS:R / RESET / STATUS）。
+    ///   - 本フレームワークで新設する可変長コマンドはカンマ区切り（TRIAL / EMSLAT / THR / EMSCFG）。
     /// </summary>
     public static class ArduinoProtocol
     {
-        public const string LedOff = "LEDOFF";
+        public const string LedOff = "LED:OFF";
         public const string Reset  = "RESET";
         public const string Status = "STATUS";
 
-        public static string Side(UserAction s) => s == UserAction.Left ? "L" : "R";
+        /// <summary>左右を1文字に。None はプログラミングエラーとして例外（黙って"R"に倒さない）。</summary>
+        public static string Side(UserAction s)
+        {
+            if (s == UserAction.Left) return "L";
+            if (s == UserAction.Right) return "R";
+            throw new System.ArgumentOutOfRangeException(nameof(s), s, "Side は Left/Right のみ。");
+        }
+
         public static string Color(StimColor c) => c == StimColor.Red ? "R" : "G";
 
         // ---- Unity → Arduino ----
@@ -51,7 +62,7 @@ namespace ReactionTest.Experiment
         public static string FormatEmsConfig(int widthUs, int count, int burst, int intervalUs)
             => string.Format(CultureInfo.InvariantCulture, "EMSCFG,{0},{1},{2},{3}", widthUs, count, burst, intervalUs);
 
-        public static string FormatEmsManual(UserAction side) => "EMS," + Side(side);
+        public static string FormatEmsManual(UserAction side) => "EMS:" + Side(side);
 
         // ---- Arduino → Unity ----
         public static bool TryParseTrialResult(string line, out TrialResult result)
@@ -63,6 +74,7 @@ namespace ReactionTest.Experiment
 
             if (p[1] == "NONE")
             {
+                // タイムアウト時は rtUs(p[2]) を参照しない（TimedOut が正本のシグナル）。
                 result.TouchedSide = UserAction.None;
                 result.RtMs = -1f;
                 result.TimedOut = true;
@@ -80,7 +92,7 @@ namespace ReactionTest.Experiment
             if (!int.TryParse(p[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out int peak))
                 return false;
             result.Peak = peak;
-            result.EmsFired = (p[4] == "1");
+            result.EmsFired = (p[4] == "1"); // "1"=発火、それ以外は未発火（厳密一致）
             return true;
         }
 
