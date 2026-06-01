@@ -1,0 +1,33 @@
+{
+  "group_level": {
+    "a_mean": 0.684234093463428,
+    "a_post_sd": 0.038858653089973424,
+    "v_mean": 0.030587253056274202,
+    "v_post_sd": 0.10760595914919237,
+    "t_mean": 0.26367014024826496,
+    "t_post_sd": 0.016151492538952334
+  },
+  "between_subj_sd_posterior": {
+    "a_std": 0.10809406902842646,
+    "v_std": 0.08762699343530077,
+    "t_std": 0.04869432741248384
+  },
+  "empirical_subj_var": {
+    "a_sd": 0.08664279833277833,
+    "v_sd": 0.008731434297766065,
+    "t_sd": 0.04217304291725347
+  },
+  "recommended_subj_var": {
+    "a_sd": 0.08664279833277833,
+    "v_sd": 0.3,
+    "t_sd": 0.04217304291725347,
+    "note": "v_sd from HDDMStimCoding is a stimulus-coded left/right drift contrast and should not replace the simulator's generic v_sd."
+  },
+  "empirical_means": {
+    "a": 0.6770504013423366,
+    "v": 0.03207446978277325,
+    "t": 0.2603194155993418
+  },
+  "n_subjects": 10,
+  "n_trials_total": 800
+}

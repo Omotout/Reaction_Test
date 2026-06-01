@@ -1,0 +1,20 @@
+name: hddm_sim
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - numpy=1.22
+  - scipy=1.8
+  - pandas=1.4
+  - matplotlib
+  - seaborn
+  - jupyter
+  - pip
+  - pip:
+    - hddm==0.9.8
+    - kabuki==0.6.5
+    - pymc==2.3.8
+    - joblib
+    - tqdm
+    - arviz

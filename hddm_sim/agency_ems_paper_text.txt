@@ -1,0 +1,939 @@
+
+
+--- PAGE 1 ---
+Preserving Agency During Electrical Muscle Stimulation 
+Training Speeds up Reaction Time Directly Afer Removing EMS 
+Shunichi Kasahara Kazuma Takada Jun Nishida 
+Sony CSL Sony CSL & Meiji University University of Chicago 
+Japan Japan United States 
+Kazuhisa Shibata Shinsuke Shimojo Pedro Lopes 
+RIKEN Center for Brain Science California Institute of Technology University of Chicago 
+Japan United States United States 
+? !
+SEP-17-2020  9:00AM    1/4000    F1.8    ISO2500SEP-17-2020  9:00AM    1/4000    F1.8    ISO2500
+before training
+without EMS
+after training
+without EMS
+EMS training
+ Reaction time (ms)
+p < 0.01
+8.1ms speed up
+0
+70
+140
+210
+280
+Figure 1: We found that preserving the user’s agency while they are accelerated using a haptic device, such as electrical muscle 
+stimulation (EMS), is key to retaining a faster reaction time afer removing the haptic device. In our study, we used EMS to 
+accelerate participants as they pressed a button when they saw an LED fash (inspired by taking a photo of a target). 
+ABSTRACT 
+Abstract: Force feedback devices, such as motor-based exoskele-
+tons or wearables based on electrical muscle stimulation (EMS), 
+have the unique potential to accelerate users’ own reaction time 
+(RT). However, this speedup has only been explored while the de-
+vice is attached to the user. In fact, very little is known regarding 
+whether this faster reaction time still occurs after the user removes 
+the device from their bodies–this is precisely what we investigated 
+by means of a simple reaction time (RT) experiment, in which par-
+ticipants were asked to tap as soon as they saw an LED fashing. 
+Participants experienced this in three EMS conditions: (1) fast-EMS, 
+the electrical impulses were synced with the LED; (2) agency-EMS, 
+the electrical impulse was delivered 40ms faster than the partici-
+pant’s own RT, which prior work has shown to preserve one’s sense 
+of agency over this movement; and, (3) late-EMS: the impulse was 
+delivered after the participant’s own RT. Our results revealed that 
+the participants’ RT was signifcantly reduced by approximately 
+8ms (up to 20ms) only after training with the agency-EMS condi-
+tion. This fnding suggests that the prioritizing agency during EMS 
+training is key to motor-adaptation, i.e., it enables a faster motor 
+response even after the user has removed the EMS device from 
+their body. 
+Permission to make digital or hard copies of all or part of this work for personal or 
+classroom use is granted without fee provided that copies are not made or distributed 
+for proft or commercial advantage and that copies bear this notice and the full citation 
+on the frst page. Copyrights for components of this work owned by others than the 
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or 
+republish, to post on servers or to redistribute to lists, requires prior specifc permission 
+and/or a fee. Request permissions from permissions@acm.org. 
+CHI ’21, May 8–13, 2021, Yokohama, Japan 
+© 2021 Copyright held by the owner/author(s). Publication rights licensed to ACM. 
+ACM ISBN 978-1-4503-8096-6/21/05. . . $15.00 
+https://doi.org/10.1145/3411764.3445147 
+CCS CONCEPTS 
+• Human-centered computing → Human computer interac-
+tion (HCI); Haptic devices. 
+KEYWORDS 
+agency; electrical muscle stimulation; reaction time 
+ACM Reference Format: 
+Shunichi Kasahara, Kazuma Takada, Jun Nishida, Kazuhisa Shibata, Shin-
+suke Shimojo, and Pedro Lopes. 2021. Preserving Agency During Electrical 
+Muscle Stimulation Training Speeds up Reaction Time Directly After Re-
+moving EMS. In CHI Conference on Human Factors in Computing Systems 
+(CHI ’21), May 8–13, 2021, Yokohama, Japan. ACM, New York, NY, USA, 
+9 pages. https://doi.org/10.1145/3411764.3445147 
+1 INTRODUCTION 
+Our nervous system possesses remarkable plasticity that enables 
+us to improve our abilities by means of training, i.e., we get faster 
+at tapping an icon on a screen or at sports by practicing these ac-
+tivities over and over. However, the optimization of our sensory 
+and motor abilities by means of training is not an trivial task. It 
+
+--- PAGE 2 ---
+CHI ’21, May 8–13, 2021, Yokohama, Japan Kasahara et al. 
+generally requires prolonged training on a task with a high num-
+ber of repetitions in a trial-and-error fashion to get signifcant 
+improvement [6]. To accelerate this cycle of learning (i.e., adapt-
+ing one’s motor patterns to acquire a new skill), researchers have 
+been employing haptic devices, especially wearable ones. These are 
+lightweight on-body haptic devices with sufcient force to actuate 
+the user’s body, and therefore, are able to physically enhance the 
+user’s motor abilities. As an example, exoskeletons [16] have been 
+shown to augment users’ grasping force [46] and to even improve 
+their musical performance [41]. 
+A more recent and emerging class of haptic devices for skill train-
+ing are interactive systems based on electrical muscle stimulation 
+(EMS). EMS induces involuntary muscle movements by applying 
+electric pulses via electrodes attached to the user’s skin. Besides 
+actuating the user’s muscles, EMS also provides also strong pro-
+prioceptive feedback to the user [25]. As such, EMS has been used 
+to build interactive devices useful for: navigation [31], training a 
+new skill (e.g., a musical instrument) [8, 42], and even learning how 
+to operate tools that the user has never seen before [26]. These 
+EMS-based force feedback devices have the potential to enhance 
+our abilities and complement the traditional skill training. For ex-
+ample, it has been shown that EMS accelerates users’ reaction time 
+(RT) when EMS is applied before users’ own action (preemptive-
+EMS) while even preserving their sense of agency [19]. However, it 
+remains unclear whether this speedup only occurs in the presence of 
+EMS or also after the user removes of the haptic device. 
+In this work, we tackle precisely this question to understand 
+whether the accelerated reaction time caused by these devices hap-
+pens even after the user has removed the device from their body. To 
+answer this question, we conducted a simple user study in which 
+participants were trained to press a button whenever they saw 
+an LED fash (no-decision making involved), inspired by how one 
+might attempt to take a picture of a fast moving object as soon as 
+one spots it. Our results, depicted in Figure 1, suggest that timing 
+the EMS impulses so as to preserve one’s agency allowed partici-
+pants to retain some of the speedup even after removing the muscle 
+stimulation device from their bodies. 
+2 RELATED WORK 
+Our approach builds on the areas of haptics (such as EMS or ex-
+oskeletons), motor skill learning in neuroscience, and theories of 
+the sense of agency from cognitive psychology. 
+2.1 Defning Learning and Motor adaptation 
+In psychology, learning has been defned as "changes in behavior 
+as a result of experience" [22]. This defnition applies to many situ-
+ations involving users interacting with computer interfaces, as well 
+as to our case (i.e., users pushing a button on a interface). On the 
+other hand, we also acknowledge that this defnition has been a 
+point of controversy too [7]. As such, we denote the particular type 
+of process that we are investigating in this paper as "adaptation", 
+which has been used to indicate motor learning that lasts for short 
+durations (in the order of minutes)–from the taxonomy of human 
+sensorimotor learning by Krakauer et. [21]. In their breakdown, sen-
+sorimotor learning is comprised of several processes if which motor 
+adaptation is a key process prior to long term skill learning [21]. 
+2.2 Haptic devices capable of limb actuation 
+(force feedback) 
+Force feedback systems are capable of moving a user’s limbs, typi-
+cally by applying a force that causes it to move even against the 
+user’s volition. There are, generally speaking, two main classes of 
+actuators that provide enough output force to actuate human limbs: 
+mechanical actuators (e.g., large robotic arms [35] or exoskele-
+tons [14, 41, 46]) and EMS. Mechanically actuated exoskeletons 
+provide force feedback for a wide range of haptic use cases, such 
+as power assistance [46] or guiding the motion [41]. 
+2.3 Electrical Muscle Stimulation 
+Electrical Muscle Stimulation (EMS) is an alternative means to 
+achieve force feedback at a much smaller hardware footprint, 
+i.e., typically interactive systems based on muscle stimulation are 
+smaller, and therefore wearable, when compared to their mechan-
+ical counterparts. EMS originated in rehabilitation medicine as 
+a means to restore lost motor functions, e.g., after spinal cord in-
+juries [40]. Only recently, EMS was used in the domain of interactive 
+devices, mostly as a technique to create force feedback in virtual 
+environments [9, 23, 24, 27], as a method to miniaturize mobile 
+information access systems [25, 30], and for training and tutorial 
+purposes [8, 26, 29, 31, 42]. 
+The latter systems that leverage EMS for training are of particular 
+importance to our research question. For instance, in Stimulated 
+Percussions, EMS enables the user’s wrists to involuntarily drum 
+on the correct tempo [8]. As another example, the PossessedHand 
+device electrically actuated the user’s muscles to reproduce the 
+fnger poses required to play stringed musical instruments [42]. 
+These devices hint that EMS actuation is useful to learn a physical 
+skill. However, all prior EMS research falls short in demonstrating 
+that EMS provides a beneft to training after the user removed the 
+electrodes and EMS stimulator. Essentially, a lot is known while 
+users are wearing EMS devices but nothing is known after users 
+have removed these. 
+A more recent emerging direction for EMS is using it to exceed 
+the user’s own physical abilities. For instance, in Wired Muscle, 
+researchers demonstrated that when moved by means of EMS, a 
+user can display an accelerated reaction time; therefore, in the 
+presence of the EMS assistance the user’s reaction time is faster 
+than their own reaction time [29]. Furthermore, by delivering the 
+EMS impulses in a particular time window (around 80ms faster 
+than the user’s own reaction time), researchers have optimized 
+EMS systems to accelerate the user’s reaction time without entirely 
+compromising the user’s sense of agency [19]. However, once again, 
+the question whether the user can achieve this after taking of the 
+EMS system is unsolved. Is this speedup permanent or only happens 
+in while the user is connected to the EMS electrodes? 
+2.4 Reaction time 
+Reaction time (RT) is one of the fundamental factors in human 
+computer interaction. The importance is evident in our everyday 
+interactions with computer systems, be it clicking a target with a 
+mouse, pressing a digital camera shutter, pressing a key to jump on 
+a platform game, or swinging a bat in VR to hit a virtual baseball. 
+
+--- PAGE 3 ---
+Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly Afer Removing EMS CHI ’21, May 8–13, 2021, Yokohama, Japan 
+Generally speaking, speeding up one’s reaction time ofers a sim-
+ple way to speed up interactions with computer systems. Moreover, 
+when any system interface with human lives, it is critical even for 
+survival, e.g., the shorter the reaction time of a pedestrian startled 
+by a horn of an incoming vehicle is, the more time they have to 
+avoid the danger. Psychophysical studies have long measured the 
+reaction time of participants in response to visual stimuli, which 
+has been found to be around 250 ms [18]; this metric became an 
+important parameter in engineering interactive systems. Moreover, 
+while one’s reaction time appears relatively stable it is of course 
+infuenced by other physiological parameters, such as physical ex-
+haustion [3, 28] or sleep deprivation [37]. Many other parameters 
+are thought to potentially infuence one’s reaction time, for instance 
+adrenaline excretion; however, some studies did not fnd evidence 
+to support it [28]. 
+Naturally, reaction time decreases with training, i.e., one becomes 
+faster at reacting [1, 43]. For instance, Taniguchi et al. and Ando, 
+et al. showed a reduction in reaction time in a simple reaction 
+task with three weeks training. As these previous works suggest, 
+a user’s reaction time can be improved (i.e., sped up/shortened) 
+through training [1, 2, 43]. In light of this, we ask our research 
+question again: if we accelerate a user’s reaction time externally 
+during training, e.g., by means of EMS, does this user still exhibit an 
+accelerated reaction time after they remove the EMS device from 
+their body? 
+The key diference between a movement that is accelerated by 
+EMS and one that is not (e.g., during voluntary training) is the 
+lack of agency experienced during EMS, i.e., with EMS, the user is 
+moved by the EMS system rather than self-propelled. As such, one 
+would not expect that much of the improvements that EMS can do 
+on the user’s reaction time would last after the user has removed 
+the device. However, previous work has shown that even when 
+stimulated by means of EMS one can conserve some agency if the 
+EMS impulses arrive within a certain time window (as found in [19]). 
+So, we put forward a new hypothesis: could this type of EMS that 
+preserves agency lead to more speedup after training when 
+compared to naive EMS? 
+3 OVERVIEW OF STUDIES AND OUR 
+HYPOTHESIS 
+We hypothesize that agency is key to retain the accelerated reaction 
+time that one experienced by means of EMS training. Simply put, 
+we expect that without feeling that we have performed an action 
+by ourselves, it is unlikely that we become better at it. With this 
+insight in mind, we formulated our hypothesis: efects of training 
+should more pronounced when participants felt agency of their action 
+during the EMS training. This is precisely what we set out to study 
+in our main experiment. 
+To measure participants’ reaction times, we employed a standard 
+visual reaction task with fnger tapping. To understand if there was 
+a improvement in participants’ reaction time, we compared reaction 
+times before (pre) and after (post) training with EMS-actuated fnger 
+movements. Note that both pre and post measurements are taken 
+without the participants wearing an EMS device. Only in between 
+these two phases they train using EMS. 
+In order to investigate whether agency is key to this motor-
+adaptation efect, we need to use an EMS approach that allows 
+participants to preserve some sense of agency, even though their 
+reaction time is actually accelerated; this is achieved by adjusting 
+the timing of the EMS impulses so that it is closer to the user’s 
+own voluntary reaction time and becomes somewhat imperceptible 
+to the user–this is the so called "Preemptive Action" [19]. To esti-
+mate the preemptive time window (how early the EMS is applied) 
+for our main study, we frst replicated the study by Kasahara et 
+al. from [19]. Given that our apparatus was diferent from that of 
+Kasahara et al’s (i.e., we utilized a more precise touch detection 
+system at a sampling rate of 1KHz), this also implied the needed 
+replication. We therefore conducted two studies: (1) determina-
+tion of preemptive timing (replication study) and (2) is agency 
+the key for user’s adaptation to faster motor responses?; the 
+latter is our main study. 
+4 STUDY#1: DETERMINATION OF 
+PREEMPTIVE TIMING 
+The objective of our frst study was to investigate the relationship 
+between EMS acceleration and perceived sense of agency in our 
+experimental design, so as to fnd the best EMS stimulus timing 
+that accelerates one’s reaction time while also preserving one’s 
+sense of agency. Our study was approved by our local ethics 
+committee. 
+4.1 Task 
+To measure participants’ reaction times, we employed a standard 
+visual reaction task with fnger tapping, as in [19]: participants saw 
+a light fash (using an LED) and tapped on a button as fast as they 
+could, which is depicted in Figure 2 (a). 
+We used this standard and simple visual reaction time task to 
+avoid potential confounds, such as other factors that can be modu-
+lated one’s reaction time, such as stimulus complexity [17, 20, 32], 
+stimulus-response compatibility [13, 38, 39], number of potential re-
+sponses [5, 10, 15], intensity of the stimulus [4, 44], and an expected 
+level of response accuracy [11, 12, 33]. 
+During each trial, participant’s reaction time was accelerated by 
+means of EMS. The time window of preemptive stimulation (EMS 
+ofset time) ranged from -100ms (i.e., 100ms before the visual stimu-
+lus) to 300ms after the LED blink, in steps of 20ms. We randomized 
+the EMS ofset time for every trial. After each trial (i.e., observe light 
+fash and tap on the button), participants were presented with their 
+reaction time followed by a questionnaire regarding their perceived 
+sense of agency. We follow the typical agency questionnaire, i.e., a 
+Likert scale question with 1 = "I did not do it" and 7 = "I did it", as 
+in [19]. 
+4.2 Procedure 
+Before engaging in the study, participants were briefed on the study 
+protocol. Then, as depicted in Figure 2 (b), participants were asked 
+to perform 30 trials to record their average reaction time without 
+EMS. Then, we asked participants to perform two sessions of the 
+simple visual reaction time test (40 trials), totalling 80 trials per 
+participant. Participants took 5 minute breaks between sessions. 
+
+--- PAGE 4 ---
+CHI ’21, May 8–13, 2021, Yokohama, Japan Kasahara et al. 
+2-3 sec
+Reaction Time
+(a) (b)
+EMS offset
+Visual
+StimlusBeep EMS Touch
+1234567
+Rate
+RT: 200ms
+Display
+Rest
+5min
+Rest
+5min
+Base RT (30 Trials) EMS (40 Trials) EMS (40 Trials)
+Figure 2: (a) In our study participants are asked to touch the bar as soon as the LED goes on. Then, an EMS impulse stimulates 
+their fnger to contract (from -100ms before the LED to 300ms after). After each touch, participants rated perceived agency on 
+a scale from 1 to 7. (b) Procedure of Study #1. After measuring the average reaction time, participants performed the task with 
+2 blocks. 
+4.3 Apparatus 
+Our experimental setup is depicted in Figure 3-(a). To assist readers 
+in replicating our experiment, we provide the necessary technical 
+details and the complete source code1. Participants were actuated 
+using the bioSync EMS device used also in [19]). 
+aluminum bar
+EMS electrodering finger
+LED (visual cue)
+touch sensor
+EMS device
+(side view)
+EMS
+electrode 
+a b
+capacitive sensing
+Arduino
+Figure 3: (a) Setup for our visual reaction task. (b) Side view 
+of our capacitive touch sensor mechanism. 
+Hand and fnger posture: In this study, the experimental setup 
+was controlled to eliminate possible disturbances such as posture 
+change, decline of concentration, EMS responsiveness change, and 
+visual stimulus size change. The fnger-holder and the touch de-
+tection bar were adjusted per participant, ensuring the hand is a 
+natural rested pose (Figure 3-(b)). Furthermore, this prevents par-
+ticipants’ muscles from quickly getting tired. 
+Measuring reaction time: We utilized an Arduino-based ca-
+pacitive touch sensor system with LED light as visual stimulus. 
+This system measured the reaction time from the duration between 
+the LED on and user’s touch on an aluminum bar embedded in the 
+fnger-holder with less than 1ms of latency (which was verifed 
+using a high speed camera). 
+Electrode placement: A pair of electrodes was placed on each 
+participant’s fexor digitorum profundus muscle. This muscle fexes 
+the ring fnger clearly. We actuated the ring fnger since, as found by 
+other previous EMS researcher, one can "robustly actuate it without 
+any parasitical motion of neighboring muscles" [19]. 
+EMS calibration: We interactively adjusted the stimulation pa-
+rameters to actuate the ring fnger robustly for our task (i.e., to 
+touch the button). The parameters used in EMS calibration were: a 
+pulse width from 100-300 microseconds and the number of pulses, 
+1https://lab.plopes.org/#EMSspeedup 
+between 1-4 repetitions. We chose this since prior research suggests 
+that shorter stimulation is less noticeable [24]. 
+Robust muscle stimulation: We performed an EMS stability 
+test per participant to ensure that the EMS can actuate the ring 
+fnger stably. Participants are asked to relax their muscles while 
+in the apparatus. Then, EMS impulses induced involuntary fnger 
+movements. After 30 trials, we evaluated the variance of the dura-
+tion (TE M S t oT ouch ) between the moment of triggering EMS and 
+the moment of touch detection. When the variance of TE M S t oT ouch 
+was below 4ms, we consider this stable, otherwise we re-calibrated 
+the EMS. 
+4.4 Participants 
+We recruited 18 participants (4 self-identifed as female, 14 as male, 
+M=23 years old; SD=2.60) from our local institution. Participants 
+performed the experiment for a total of four days and received 
+70 USD as compensation for their time. With their prior written 
+consent, we transcribed their comments. The study design was 
+approved by the local ethics committee and all participants provided 
+written informed consent prior to their participation. 
+4.5 Results 
+We collected 80 trials per each participant, with two data points per 
+trial: reaction time and assessment of agency. We found participants’ 
+average reaction time to be M=203.8ms (SD=15.0ms), which is close 
+to fndings in psychophysics research depicting a reaction time of 
+250 ms in response to visual stimuli [18]. 
+Then, we normalized the data by subtracting each participant’s 
+baseline reaction time (their own voluntary reaction time, acquired 
+prior to the study) to each trial’s reaction time (with EMS actuation). 
+This allows us to instead depict the time gained by means of pre-
+emption, which Kasahara et al. defned as preemptive gain [19]. 
+Moreover, following [19], we also normalized the agency axis from 
+0 to 1. 
+Figure 4 depicts results for the relationship between preemp-
+tive gain and perceived sense of agency. Following the protocol 
+of [19], we computed a logistic regression. This resulted in a mean 
+ft of R2=0.74 (with SD=0.073, MIN=0.60, MAX=0.85) for our logis-
+tic model. This demonstrates that the participant’s curves are in 
+most cases similar and relatively consistent, as suggested by the 
+
+--- PAGE 5 ---
+Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly Afer Removing EMS CHI ’21, May 8–13, 2021, Yokohama, Japan 
+Agency score (normalized)
+Preemptive gain (ms)
+Figure 4: Results for the preemptive gain timing. We de-
+pict the relationship between sense of agency [0-1] vs. pre-
+emptive gain (timing of EMS in respect to the participant’s 
+own baseline). The solid lines represent regression curves 
+derived from a logistic regression for each participant. 
+low standard deviation. From this curve, we found that 40ms of 
+preemptive gain would provide a preserved sense of agency larger 
+than 0.5 for 15 in our 18 participants. This mid-point in the sense of 
+agency (0.5) was chosen accordingly to [19]. Therefore, we defned 
+our agency-preserving EMS timing as 40ms, which we will use in 
+our next study. Last, this result appears consistent with [19] since: 
+(1) the curve distribution is similar; and, (2) while the value is lower, 
+this is likely due to our use of a more precise hardware apparatus 
+(i.e., our touch sensor was implemented at the microcontroller level, 
+instead of a via a laptop touchscreen). 
+5 STUDY#2: IS AGENCY THE KEY FOR 
+ADAPTATION TO FASTER MOTOR 
+RESPONSES? 
+The purpose of our main study is to shine light of whether pre-
+emptive EMS is the key for a motor adaptation efect, i.e., it allows 
+users to become faster than they were, even after removing the 
+EMS device. As such, we employed a standard pre/post learning 
+study. We measure participants’ reaction time prior to the study 
+(we call this pre-RT). Then, we trained participants to perform a 
+reaction test under a series of conditions (the same simple reaction 
+tap-test from our previous study). Lastly, we measure their reaction 
+time after this training (we call this post-RT). 
+This study uses precisely the same apparatus and calibration 
+procedures as our previous experiment. 
+5.1 Conditions 
+We designed three experimental conditions, which are depicted in 
+Figure 5. These were: 
+1.fast-EMS: EMS actuated participants’ ring fnger at the same 
+time as the LED fashed ( depicts an EMS ofset time of 0ms). There-
+fore, the measured reaction time is expected to be very fast; in fact, 
+"super-humanly fast". Conversely, because the resulting reaction 
+time is super-humanly fast, this condition results in no/very-low 
+sense of agency (from [19]). 
+2.agency-EMS: EMS actuated participants’ ring fnger at 40ms 
+of preemptive gain, where we expected to preserve some degree 
+of agency according to previous experiment. The EMS ofset time 
+was calculated by subtracting TE M S t oT ouch (EMS trigger to the 
+touch detection) and preemptive gain (40ms) from TBase RT each 
+participant’s baseline reaction time (obtained pre-study). To sum 
+it up, this condition enables a slightly faster reaction time, while 
+preserving some degree of agency (from [19]). 
+3. late-EMS: EMS actuated participants’ ring fnger but only 
+after the participant’s baseline reaction time. The EMS ofset time 
+is defned as 1.2 * TBase RT of each participant’s baseline reaction 
+time (i.e., participants are expected to be tap faster than the EMS 
+assistance). In this EMS condition, participants will have complete 
+sense of agency (or close to it, from [19]) but the reaction time will 
+not be faster. 
+We added these conditions to allow us to make the proper com-
+parisons. Only having agency as a variable would not allow us to 
+exclude whether an EMS condition that makes subjects act faster 
+(speed) could alone explain the gain in post-EMS reaction time. 
+Thus, to have both speed and agency as variables it required us to 
+the aforementioned design with these three conditions. 
+RT = 160ms
+2-3 sec
+Reaction Time
+EMS offset
+EMS
+AGENCY EMSb
+RT = 200ms
+2-3 sec
+Reaction Time
+EMS offset
+EMS
+LATE EMSc
+RT = 40ms
+2-3 sec
+Reaction Time
+EMS
+FAST EMSa
+Figure 5: We utilized three study conditions: (a) fast-EMS 
+(fastest but no sense of agency), (b) agency-EMS (faster 
+and preserves some sense of agency), and (c) late-EMS (no 
+speedup but with full sense of agency). 
+PRE (30Trial) POST (30Trial)EMS (30Trial)Base RT (30Trial)
+Rest
+2min
+Rest
+2min
+POST (30Trial)EMS (30Trial)
+Figure 6: The EMS training blocks were preceded and suc-
+ceed by a block that measured, respectively, the participant’s 
+pre and post reaction times. 
+5.2 Hypothesis 
+Our hypothesis is: if agency is the key for motor adaptation, we 
+should measure the largest adaptation efects (i.e., largest speedup 
+in reaction time post-training) in the agency-EMS condition, when 
+compared to any other condition. 
+
+--- PAGE 6 ---
+CHI ’21, May 8–13, 2021, Yokohama, Japan Kasahara et al. 
+Figure 7: Reaction time (in ms) for all conditions: (top) fast-ems; (center) agency-EMS; and, (bottom) late-EMS. 
+5.3 Procedure 
+Figure 6 depicts our study design. First, we measured the partici-
+pant’s baseline reaction time (TBase RT ). As described above, each 
+participant’s baseline is used to compute the precise timing of the 
+stimulation in the agency-EMS condition (preemptive gain - base-
+line). 
+After this, participants engaged in two additional sessions, as 
+depicted in Figure 6. The frst session was comprised of three blocks: 
+30 trials without EMS (pre-RT), 30 trials with EMS (training), and 
+30 trials without EMS (post-RT). The second session was shorter, 
+with one block of 30 trials with EMS (training) and one without 
+(post-RT). 
+In order to isolate the infuence of each condition, the three 
+conditions were performed on diferent days. Our main study was 
+conducted for a total of nine days, with breaks of three days in 
+between. The order of these conditions was counter balanced. Lastly, 
+participants were interviewed about their experience. 
+5.4 Participants 
+We invited 17 participants from the previous study (4 self-identifed 
+as female, 13 as male), only one participant (from the previous 18) 
+was excluded due to low agency score on the previous study. This 
+study occurred weeks after the previous one. 
+5.5 Results 
+We collected a total of 510 trials for pre-RT and 1020 for post-RT, 
+for each conditions, totalling 1530 data points. Figure 7 depicts the 
+raw reaction times for each condition. As expected, we observed 
+that the measured reaction time was shorter during EMS session 
+for both fast-EMS and agency-EMS condition, in contrast, the mea-
+sured reaction time was longer in the late-EMS condition. The main 
+question is whether there is a signifcant increase in post-RT that 
+is dependent on agency, which will analyze next. 
+Note that before analyzing data, we excluded outliers. We re-
+moved data points with reaction time less than 100 ms (accidental 
+activation of the touch sensor) or over 300ms (distracted partici-
+pant). In total, we fltered 7% data from all data. Since the change 
+of session may cause distraction, we also excluded frst two sample 
+data points from each session. 
+Furthermore, we confrmed that there was no session order efect 
+throughout the study. We did not observed a decrease the reaction 
+time over our study, since no correlation between the study order 
+and the baseline reaction time on each day (R2 < 0.0001). We also 
+confrmed that there was no after efect over the each sessions, 
+since we found no correlation between the gain in the reaction time 
+within study session and the change in base reaction time between 
+sessions (R2 = 0.146). 
+5.6 Analysis of the accelerated reaction time 
+Since the reaction time varies with participants and their condition 
+in each day, we focus on the gain in reaction time after EMS ses-
+sion in each participant and each study session, i.e., a participant’s 
+post-RT - pre-RT. We depict this in Figure 8 denoting how each 
+participant’s reaction time (median) changed after EMS session for 
+all conditions. 
+fast-EMS agency-EMS late-EMS
+PRE POST PRE POST PRE POST
+Reaction time (ms)
+Figure 8: Changes in pre-RT (reaction time before training, 
+without EMS) and post-RT (after training, also without EMS), 
+for all three conditions. Colored data points represent the 
+diferent participants. 
+To test whether the three EMS conditions led to diferential gains 
+in reaction times, we analyzed the gain in reaction time for these 
+conditions by taking in the data from the two post-EMS blocks 
+(Figure 9). Since no signifcant violation of normality was found 
+in any data in median reaction times across participants (Shapiro-
+Wilk Test), we used parametric methods to evaluate a signifcance 
+of statistical comparisons. 
+First, we performed one-sample t-test between the gain of me-
+dian reaction times in each EMS condition and 0 ms to check the 
+valid gain of reaction time. p-value was adjusted by the Bonferroni 
+method. A signifcant gain was found in the agency-EMS condition 
+(t16 = 4.47, p = 0.0011). However, no gain was found for either the 
+fast-EMS condition (t16 = 2.16, p = 0.139) or the late-EMS condition 
+(t16 = -0.63, p = 1.0 ). Second, a one-way repeated ANOVA on the 
+
+--- PAGE 7 ---
+Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly Afer Removing EMS CHI ’21, May 8–13, 2021, Yokohama, Japan 
+gains indicated that the gains were signifcantly diferent among 
+the conditions (F2,32 = 7.06, p = 0.002). Post-hoc analysis using 
+Tukey method showed a signifcant diference in mean gain of reac-
+tion time between agency-EMS and late-EMS condition (p<.01). In 
+contrast, other combinations of condition were not signifcant(fast-
+EMS: M = 3.88, SD. = 7.41, agency-EMS:M = 8.09, SD. = 7.46, late-
+EMS:M = -0.91, SD. = 5.99). Collectively, participants’ reaction times 
+were kept accelerated after EMS-actuated training that involves 
+the sense of agency. These results are in accord with our main 
+hypothesis: retaining agency during training led to a more 
+efective motor adaptation after EMS training. In other words, 
+only the agency-EMS condition revealed a signifcant diference 
+from the baseline, indicating that only agency-EMS had an efect 
+of the motor adaptation after the participants removed the EMS 
+device. 
+fast-EMS agency-EMS late-EMS
+Reaction time gain (ms)
+p = .001 ***
+Figure 9: Gain in reaction time (in ms) for all EMS condi-
+tions. Colored plots depict a participant’s median gain of re-
+action time from pre-session (before training, without EMS) 
+to post-session (after training, also without EMS). The black 
+solid plot depicts average gain across all participants. 
+5.7 Qualitative results 
+We here describe the qualitative aspect of our study from post-
+interviews with participants. We structured each interview around 
+three key questions, which were asked regarding each study con-
+dition: (1) "How did you feel in the trials?"; (2) "Did you feel any 
+change in your behavior between start and end of this study?"; and, 
+(3) "Did you feel in control of your actions in the trials?". These 
+questions were used to initiate the conversation, often participants 
+added more observations, which we present below. 
+First, in late-EMS condition, we observed two types of reactions 
+from participants, both expected. In some situations, participants 
+did not recognize the EMS sensation during the tapping action, as 
+they mentioned "I was not confdent to have stimulation in this 
+[EMS] session"(P5) and "I did not feel the [EMS] feeling at all" (P7). 
+Yet, in other trials participants, were certain about their sense of 
+agency of the tapping action: "I felt EMS stimulation but I moved 
+my fnger completely by my self" (P5), "I clearly felt that EMS 
+stimulation came after my movement " (P7). Either way, they were 
+confdent that they touched the sensor by themselves. Moreover, 
+most stated that, similarly to P13, "I didn’t fell any change in my 
+reaction time". 
+In fast-EMS condition, almost all participants reported that they 
+felt some sort of EMS impulse much earlier than their own move-
+ment. They unlikely felt any agency, as we observed many com-
+ments such as "[EMS] it was really fast, I didn’t feel that I touched 
+it by myself (P14)", "At the moment when I found the light is on, my 
+fnger fnished the touch motion (P10)", and "I felt that my fnger 
+was completely actuated by EMS" (P8). Interestingly, three partici-
+pants explicitly mentioned negative emotional valence connected 
+to a loss of motivation, such as "I found catching up the speed of 
+EMS [fast condition] is impossible, therefore I wanted to give up 
+for the touch task" (P13), and even "I lose my motivation to move 
+by myself because I know EMS will exceed my speed (P4)". These 
+comments indicate that too much assistance is not benefcial. This 
+is corroborated by research in motor learning [34, 36]. 
+Conversely, in the agency-EMS condition, participants de-
+scribed a more integrated feeling of movement such as "I felt good 
+timing" (P11), more specifcally "EMS actuate me during [my] own 
+touch" (P9). A reminder that while they reported a synchronized 
+timing with EMS and self motion, the moment of actual EMS im-
+pulse was earlier then they do. In this view, this comment represents 
+the internal feeling of EMS ; "It feeling like EMS helps me in right 
+time between my intention and my movement"(P1). Other com-
+ments also aligned with the perceived sense of agency as "with 
+this one [agency-EMS], I felt that I could touch faster even with 
+my own touch, it was positive for me" (P11, and similarly P5). We 
+observed analogous comments from other participants such as "I 
+know EMS was triggered when the LED is on, but still I felt my 
+control"(P4). Those observations are also consistent with previous 
+research [19]. This further indicated that our agency-EMS with 40 
+ms of preemptive gain successfully preserved a partial sense of 
+agency even with EMS acceleration. We also noted a more positive 
+emotional valence relating to motivation, such as "I could more 
+focus on the task (...) gives me motivation for better performance" 
+(P11). 
+6 DISCUSSION OF OUR STUDY’S 
+LIMITATIONS 
+Our study revealed that one’s reaction time shortened after the 
+EMS training session in which participants’ sense of agency on 
+their action was preserved (so called preemptive-EMS). However, 
+for the sake of completeness and for assisting future researchers to 
+build on our work, we discuss our study’s limitations. 
+6.1 EMS-specifc 
+First, we focused on using EMS as the force feedback device that 
+provided the "accelerated" reaction-time experience. We chose EMS 
+since it allowed us to actuate the user rapidly and safely at speeds 
+faster than the user’s own reaction time. Furthermore, the electrodes 
+of EMS do not interfere by covering the user’s fngers (as most 
+mechanically actuated devices do), and EMS is a emergent area in 
+HCI, which appears to many researchers as a promising approach in 
+miniaturization of haptic actuation [23, 24, 26, 27]. However, other 
+force-feedback devices such as exoskeletons are also promising 
+for movement-assistance and rehabilitation. Therefore, an open 
+question is whether one should extend our fndings to exoskeleton 
+and other haptic devices; we believe that warrants future work. 
+
+--- PAGE 8 ---
+CHI ’21, May 8–13, 2021, Yokohama, Japan Kasahara et al. 
+6.2 Why 8ms of speedup is actually a lot 
+In our study, the average acceleration gain of reaction time in 17 
+participants was about 8 ms on a grand average. Here, we would 
+like emphasize two aspects: (1) the duration of the study session 
+that induced the acceleration was very short yet it still was enough 
+to trigger the speedup efect. Previous research reported that three 
+weeks of long-term training accelerate the reaction time approx. 
+20 ms, and its acceleration would last three weeks [1, 2]. On contrast 
+in our case, we were able to observe accelerations with only 30 or 
+60 EMS trials in agency-EMS condition; therefore, it is unsurprising 
+that we observed less than the 20 ms seen by [1, 2]. (2) 8 ms is not 
+small speedup, in professional sports (baseball, tennis, etc) or other 
+activities that require very fast movements, 8 ms is considerable, 
+i.e., in a fast tennis serve the ball moves 0.5 meters in a mere 8 ms, 
+which means if the player cannot react 8 ms faster they would have 
+completely missed returning a serve 2. 
+6.3 Training period 
+There are studies that demonstrate how repeated sessions (longer 
+training) consolidates the learning efect [2]. In this view, we also 
+expect to enhance and consolidate the efect of acceleration by 
+repeatedly performing our EMS learning process for a longer period 
+of time. 
+7 APPLICATIONS OF OUR FINDINGS 
+We envision that researchers and practitioners might apply our 
+fndings to interfaces where short-term accelerations are useful and 
+the interface does not require predicting complex user intentions. 
+As such, we now illustrate the applicability of our fndings by means 
+of two examples, both of which provide the user with short-term 
+benefts without requiring decision-making. These are useful for 
+researchers working on haptic interfaces or other interactive use 
+cases that leverage EMS to provide a speedup of the users’ reaction 
+time. 
+1. Speedups for sports requiring fast-reactions. One of the 
+most exciting applications of our work is to take our fndings out of 
+the lab and into user’s body as they play/perform/train for sports 
+that require fast-reactions. In Figure 10 (b) we depict this at the 
+example of a user who trains for sprint runs by using a wearable 
+EMS device on their legs (inspired by [45]), which assists the in 
+retaining the speed-up of the starting trigger reaction time. 
+2. Power-ups that speed up the user, not their video-game 
+character. Furthermore, the most intriguing and exciting of our 
+fndings is that our approach provides the experience of boosting 
+one’s own reaction time even if the context of application not 
+just ’training’. Figure 10 depicts the example using our fndings to 
+transform the experience of playing a frst person shooter game 
+(games where players shoot targets as fast as possible). Here, a user 
+can collect a "speedup power-up" that, rather than just making their 
+avatars or rife shoot faster, it makes the user shoot faster by means 
+of preemptive EMS; literally accelerating the user. As a beneft, after 
+collecting multiple of these power-ups, which act as a training EMS 
+session, the user’s own reaction time must get faster–as shown in 
+our study. 
+2https://en.wikipedia.org/wiki/Fastest_recorded_tennis_serves 
+Electrodes
+Electrodes
+!
+a b
+Figure 10: Two applications. (a) In this video-game, the user 
+collects a "power-up" that instead of making their avatar 
+shoot faster, it makes the user’s own body shoot faster using 
+EMS speed-ups. The power-up has a lasting efect because 
+after the EMS training, the user still benefts from an accel-
+erated reaction time. (b) This user trains for sprint runs with 
+a wearable EMS device on their legs, which assists them in 
+retaining the speedup for the starting trigger reaction time. 
+8 CONCLUSION 
+We demonstrated that it is possible to accelerate one’s reaction 
+time, by means of muscle stimulation, even after the removing the 
+EMS device and its electrodes. In our study, we measured a user’s 
+reaction time before and after experiencing EMS in a reaction time 
+experiment, in which participants were asked to tap as soon as 
+they saw an LED lighting up in three EMS training conditions: (1) 
+fast-EMS, the electrical impulses were synced with the LED; (2) 
+agency-EMS, which made 40ms faster than the participant’s own 
+reaction time, thus and preserving their partial sense of agency; 
+and, (3) late-EMS: the impulse was delivered after the participant’s 
+own reaction time. 
+Our study revealed that participants’ reaction time was signif-
+cantly reduced by approximately 8ms (up to 20ms) in agency-EMS 
+condition, even after removing the device. Our results suggest that 
+the sense of agency plays a crucial role in the adaptation process 
+for acceleration of reaction time. 
+As for future work, we expect that researchers might expand our 
+fndings to investigate how agency plays a role in more complex 
+situations where users fnd themselves accelerated by means of 
+EMS, yet, are still able to make decisions–a crucial element that we 
+did not investigate in this paper. 
+ACKNOWLEDGMENTS 
+We would like to thank Daisuke Tajima for his advice on the sta-
+tistical analysis. This work was supported by JST Moonshot R&D 
+Program (JPMJMS2013), JSPS KAKENHI (19H01041 and 20H05715) 
+and Grant-in-Aid for JSPS Research Fellow (JP16J03777). This work 
+is supported in part by NSF grant 2047189. Any opinions, fndings, 
+and conclusions or recommendations expressed in this material are 
+those of the authors and do not necessarily refect the views of any 
+funding agencies. 
+REFERENCES 
+[1] Soichi Ando, Noriyuki Kida, and Shingo Oda. 2002. Practice efects on reaction 
+time for peripheral and central visual felds. Perceptual and Motor Skills 95, 3 Pt 1 
+(Dec. 2002), 747–751. https://doi.org/10.2466/pms.2002.95.3.747 
+[2] Soichi Ando, Noriyuki Kida, and Shingo Oda. 2004. Retention of Practice Efects 
+on Simple Reaction Time for Peripheral and Central Visual Fields. Perceptual and 
+Motor Skills 98, 3 (June 2004), 897–900. https://doi.org/10.2466/pms.98.3.897-900 
+
+--- PAGE 9 ---
+264 
+Preserving Agency During Electrical Muscle Stimulation Training Speeds up Reaction Time Directly Afer Removing EMS CHI ’21, May 8–13, 2021, Yokohama, Japan 
+[3] VL Bender and GH McGlynn. 1976. The efect of various levels of strenuous to 
+exhaustive exercise on reaction time. European journal of applied physiology and 
+occupational physiology 35, 2 (1976), 95–101. 
+[4] Anthony N. Carlsen, Romeo Chua, J. Timothy Inglis, David J. Sanderson, and 
+Ian M. Franks. 2004. Prepared movements are elicited early by startle. Journal of 
+Motor Behavior 36, 3 (Sept. 2004), 253–264. https://doi.org/10.3200/JMBR.36.3.253-
+[5] R. W. Christina, M. G. Fischman, and M. J. Vercruyssen. 1982. Simple reaction time 
+as a function of response complexity: memory drum theory revisited. Journal 
+of Motor Behavior 14, 4 (Dec. 1982), 301–321. https://doi.org/10.1080/00222895. 
+1982.10735282 
+[6] Jörn Diedrichsen, Olivier White, Darren Newman, and Níall Lally. 2010. Use-
+Dependent and Error-Based Learning of Motor Behaviors. Journal of Neuroscience 
+30, 15 (April 2010), 5159–5166. https://doi.org/10.1523/JNEUROSCI.5406-09.2010 
+[7] M Domjan. 2010. The principles of learning and behavior, 6th edn Belmont. CA: 
+Thomson Wadsworth.[Google Scholar] (2010). 
+[8] Ayaka Ebisu, Satoshi Hashizume, Kenta Suzuki, Akira Ishii, Mose Sakashita, and 
+Yoichi Ochiai. 2016. Stimulated Percussions: Techniques for Controlling Human 
+As Percussive Musical Instrument by Using Electrical Muscle Stimulation (SA 
+’16). ACM, New York, NY, USA, Article 37, 2 pages. https://doi.org/10.1145/ 
+3005274.3005324 
+[9] Farzam Farbiz, Zhou Hao Yu, Corey Manders, and Waqas Ahmad. 2007. An 
+Electrical Muscle Stimulation Haptic Feedback for Mixed Reality Tennis Game 
+(SIGGRAPH ’07). ACM, New York, NY, USA, Article 140. https://doi.org/10.1145/ 
+1280720.1280873 
+[10] M. G. Fischman. 1984. Programming time as a function of number of movement 
+parts and changes in movement direction. Journal of Motor Behavior 16, 4 (Dec. 
+1984), 405–423. https://doi.org/10.1080/00222895.1984.10735329 
+[11] P. M. Fitts. 1954. The information capacity of the human motor system in 
+controlling the amplitude of movement. Journal of Experimental Psychology 47, 6 
+(June 1954), 381–391. 
+[12] P. M. Fitts. 1966. Cognitive aspects of information processing. 3. Set for speed 
+versus accuracy. Journal of Experimental Psychology 71, 6 (June 1966), 849–857. 
+https://doi.org/10.1037/h0023232 
+[13] P. M. Fitts and C. M. Seeger. 1953. S-R compatibility: spatial characteristics of 
+stimulus and response codes. Journal of Experimental Psychology 46, 3 (Sept. 
+1953), 199–210. https://doi.org/10.1037/h0062827 
+[14] Takashi Goto, Swagata Das, Katrin Wolf, Pedro Lopes, Yuichi Kurita, and Kai 
+Kunze. 2020. Accelerating Skill Acquisition of Two-Handed Drumming Using 
+Pneumatic Artifcial Muscles (AHs ’20). Association for Computing Machinery, 
+New York, NY, USA, Article 12, 9 pages. https://doi.org/10.1145/3384657.3384780 
+[15] Franklin M. Henry and Donald E. Rogers. 1960. Increased Response Latency for 
+Complicated Movements and A Memory Drum Theory of Neuromotor Reaction. 
+Research Quarterly. American Association for Health, Physical Education and Recre-
+ation 31, 3 (Oct. 1960), 448–458. https://doi.org/10.1080/10671188.1960.10762052 
+[16] Pilwon Heo, Gwang Min Gu, Soo-jin Lee, Kyehan Rhee, and Jung Kim. 2012. Cur-
+rent hand exoskeleton technologies for rehabilitation and assistive engineering. 
+International Journal of Precision Engineering and Manufacturing 13, 5 (May 2012), 
+807–824. https://doi.org/10.1007/s12541-012-0107-2 
+[17] W. E. Hick. 1952. On the Rate of Gain of Information. Quarterly Journal of 
+Experimental Psychology 4, 1 (March 1952), 11–26. https://doi.org/10.1080/ 
+17470215208416600 
+[18] Ray Hyman. 1953. Stimulus information as a determinant of reaction time. 
+Journal of Experimental Psychology 45, 3 (1953), 188–196. https://doi.org/10. 
+1037/h0056940 
+[19] Shunichi Kasahara, Jun Nishida, and Pedro Lopes. 2019. Preemptive Action: 
+Accelerating Human Reaction using Electrical Muscle Stimulation Without Com-
+promising Agency. In Proceedings of the 2019 CHI Conference on Human Fac-
+tors in Computing Systems - CHI ’19. ACM Press, Glasgow, Scotland Uk, 1–15. 
+https://doi.org/10.1145/3290605.3300873 
+[20] J. Kaswan and S. Young. 1965. EFFECT OF STIMULUS VARIABLES ON CHOICE 
+REACTION TIMES AND THRESHOLDS. Journal of Experimental Psychology 69 
+(May 1965), 511–514. https://doi.org/10.1037/h0021742 
+[21] John W Krakauer and Pietro Mazzoni. 2011. Human sensorimotor learning: 
+adaptation, skill, and beyond. Current opinion in neurobiology 21, 4 (2011), 636– 
+644. 
+[22] Sheldon J Lachman. 1997. Learning is a process: Toward an improved defnition 
+of learning. The Journal of psychology 131, 5 (1997), 477–480. 
+[23] Pedro Lopes and Patrick Baudisch. 2013. Muscle-propelled Force Feedback: 
+Bringing Force Feedback to Mobile Devices (CHI ’13). ACM, New York, NY, USA, 
+2577–2580. https://doi.org/10.1145/2470654.2481355 
+[24] Pedro Lopes, Alexandra Ion, and Patrick Baudisch. 2015. Impacto: Simulating 
+Physical Impact by Combining Tactile Stimulation with Electrical Muscle Stim-
+ulation (UIST ’15). ACM, New York, NY, USA, 11–19. https://doi.org/10.1145/ 
+2807442.2807443 
+[25] Pedro Lopes, Alexandra Ion, Willi Mueller, Daniel Hofmann, Patrik Jonell, and 
+Patrick Baudisch. 2015. Proprioceptive Interaction (CHI ’15). ACM, New York, 
+NY, USA, 939–948. https://doi.org/10.1145/2702123.2702461
+[26] Pedro Lopes, Patrik Jonell, and Patrick Baudisch. 2015. Afordance++: Allowing 
+Objects to Communicate Dynamic Use (CHI ’15). ACM, New York, NY, USA, 
+2515–2524. https://doi.org/10.1145/2702123.2702128 
+[27] Pedro Lopes, Sijing You, Lung-Pan Cheng, Sebastian Marwecki, and Patrick 
+Baudisch. 2017. Providing Haptics to Walls &#38; Heavy Objects in Virtual 
+Reality by Means of Electrical Muscle Stimulation (CHI ’17). ACM, New York, 
+NY, USA, 1471–1482. https://doi.org/10.1145/3025453.3025600 
+[28] Terry McMorris, Mark Tallon, Craig Williams, John Sproule, Steve Draper, Jon 
+Swain, Julia Potter, and Neville Clayton. 2003. Incremental exercise, plasma con-
+centrations of catecholamines, reaction time, and motor time during performance 
+of a noncompatible choice response time task. Perceptual and motor skills 97, 2 
+(2003), 590–604. 
+[29] Jun Nishida, Shunichi Kasahara, and Kenji Suzuki. 2017. Wired Muscle: Gen-
+erating Faster Kinesthetic Reaction by Inter-personally Connecting Muscles 
+(SIGGRAPH ’17). ACM, New York, NY, USA, Article 26, 2 pages. https://doi.org/ 
+10.1145/3084822.3084844 
+[30] Jun Nishida and Kenji Suzuki. 2017. bioSync: A Paired Wearable Device for 
+Blending Kinesthetic Experience. In Proceedings of the 2017 CHI Conference on 
+Human Factors in Computing Systems (CHI ’17). ACM, New York, NY, USA, 3316– 
+3327. https://doi.org/10.1145/3025453.3025829 
+[31] Max Pfeifer, Tim Dünte, Stefan Schneegass, Florian Alt, and Michael Rohs. 
+2015. Cruise Control for Pedestrians: Controlling Walking Direction Using 
+Electrical Muscle Stimulation (CHI ’15). ACM, New York, NY, USA, 2505–2514. 
+https://doi.org/10.1145/2702123.2702190 
+[32] Roger Ratclif. 2002. A difusion model account of response time and accuracy 
+in a brightness discrimination task: ftting real data and failing to ft fake but 
+plausible data. Psychonomic Bulletin & Review 9, 2 (June 2002), 278–291. 
+[33] B. A. Reddi and R. H. Carpenter. 2000. The infuence of urgency on decision time. 
+Nature Neuroscience 3, 8 (Aug. 2000), 827–830. https://doi.org/10.1038/77739 
+[34] Alan W Salmoni, Richard A Schmidt, and Charles B Walter. 1984. Knowledge 
+of results and motor learning: a review and critical reappraisal. Psychological 
+bulletin 95, 3 (1984), 355. 
+[35] MHD Yamen Saraiji, Tomoya Sasaki, Reo Matsumura, Kouta Minamizawa, and 
+Masahiko Inami. 2018. Fusion: Full Body Surrogacy for Collaborative Com-
+munication (SIGGRAPH ’18). ACM, New York, NY, USA, Article 7, 2 pages. 
+https://doi.org/10.1145/3214907.3214912 
+[36] Richard A Schmidt, Douglas E Young, Stephan Swinnen, and Diane C Shapiro. 
+1989. Summary knowledge of results for skill acquisition: Support for the guid-
+ance hypothesis. Journal of Experimental Psychology: Learning, Memory, and 
+Cognition 15, 2 (1989), 352. 
+[37] Jonathon PR Scott, Lars R McNaughton, and Remco CJ Polman. 2006. Efects 
+of sleep deprivation and exercise on cognitive, motor performance and mood. 
+Physiology & behavior 87, 2 (2006), 396–408. 
+[38] J. R. Simon and A. P. Rudell. 1967. Auditory S-R compatibility: the efect of an 
+irrelevant cue on information processing. The Journal of Applied Psychology 51, 
+3 (June 1967), 300–304. 
+[39] J. RICHARD SIMON and JAMES D. WOLF. 1963. Choice Reaction Time as a 
+Function of Angular Stimulus-Response Correspondence and Age. Ergonomics 6, 
+1 (Jan. 1963), 99–105. https://doi.org/10.1080/00140136308930679 
+[40] P. Strojnik, A. Kralj, and I. Ursic. 1979. Programmed Six-Channel Electrical 
+Stimulator for Complex Stimulation of Leg Muscles During Walking. IEEE 
+Transactions on Biomedical Engineering BME-26, 2 (Feb 1979), 112–116. https: 
+//doi.org/10.1109/TBME.1979.326520 
+[41] Nobuhiro Takahashi, Hayato Takahashi, and Hideki Koike. 2019. Soft Exoskeleton 
+Glove Enabling Force Feedback for Human-Like Finger Posture Control with 20 
+Degrees of Freedom. In 2019 IEEE World Haptics Conference (WHC). IEEE, Tokyo, 
+Japan, 217–222. https://doi.org/10.1109/WHC.2019.8816142 
+[42] Emi Tamaki, Takashi Miyaki, and Jun Rekimoto. 2011. PossessedHand: Tech-
+niques for Controlling Human Hands Using Electrical Muscles Stimuli (CHI ’11). 
+ACM, New York, NY, USA, 543–552. https://doi.org/10.1145/1978942.1979018 
+[43] Y. Taniguchi. 1999. Efect of practice in bilateral and unilateral reaction-time 
+tasks. Perceptual and Motor Skills 88, 1 (Feb. 1999), 99–109. https://doi.org/10. 
+2466/pms.1999.88.1.99 
+[44] J. Valls-Solé, J. C. Rothwell, F. Goulart, G. Cossu, and E. Muñoz. 1999. Patterned 
+ballistic movements triggered by a startle in healthy humans. The Journal of 
+Physiology 516 ( Pt 3) (May 1999), 931–938. https://doi.org/10.1111/j.1469-7793. 
+1999.0931u.x 
+[45] Frederik Wiehr, Felix Kosmalla, Florian Daiber, and Antonio Krüger. 2017. Foot-
+Striker: An EMS-Based Foot Strike Assistant for Running (UbiComp ’17). As-
+sociation for Computing Machinery, New York, NY, USA, 317–320. https: 
+//doi.org/10.1145/3123024.3123191 
+[46] Yasuhisa Hasegawa, Yasuyuki Mikami, Kosuke Watanabe, and Yoshiyuki Sankai. 
+2008. Five-fngered assistive hand with mechanical compliance of human fnger. 
+In 2008 IEEE International Conference on Robotics and Automation. 718–724. https: 
+//doi.org/10.1109/ROBOT.2008.4543290 
