@@ -21,6 +21,7 @@
     python Analysis/trial_sd_pre_experiment.py path/to/other.csv
 """
 
+import argparse
 import csv
 import os
 import sys
@@ -55,7 +56,15 @@ def fmt(x, nd=1):
 
 def main():
     root = repo_root()
-    in_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(root, DEFAULT_INPUT)
+    parser = argparse.ArgumentParser(description="Per-subject trial-to-trial RT SD report.")
+    parser.add_argument("input", nargs="?", default=os.path.join(root, DEFAULT_INPUT),
+                        help="入力CSV（既定: hddm_sim/pre_experiment_data.csv）")
+    parser.add_argument("--exclude", default="",
+                        help="除外する subject_id をカンマ区切りで指定（例: --exclude 007,004）")
+    args = parser.parse_args()
+
+    in_path = args.input
+    exclude = {s.strip() for s in args.exclude.split(",") if s.strip()}
     if not os.path.isfile(in_path):
         sys.exit(f"入力CSVが見つかりません: {in_path}")
 
@@ -73,7 +82,9 @@ def main():
             stim = row["stim"].strip()
             by_subj[row["subject_id"]].append((rt_ms, resp, stim))
 
-    subjects = sorted(by_subj.keys())
+    subjects = [s for s in sorted(by_subj.keys()) if s not in exclude]
+    if exclude:
+        print(f"excluded: {sorted(exclude)}")
 
     rows_out = []
     for sid in subjects:
