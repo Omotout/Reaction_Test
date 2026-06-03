@@ -114,15 +114,30 @@ def main():
               f"{fmt(r['rt_sd_ms_left']):>7} {fmt(r['rt_sd_ms_right']):>7}")
 
     # 全体サマリ（被験者ごと試行間SDの平均・範囲）
-    sds = [r["rt_sd_ms"] for r in rows_out if isinstance(r["rt_sd_ms"], (int, float))]
-    if sds:
-        print("-" * len(header))
-        if len(sds) >= 2:
-            print(f"trial-to-trial SD (correct): mean {statistics.mean(sds):.1f}ms, "
-                  f"range {min(sds):.1f}-{max(sds):.1f}ms, "
-                  f"between-subject SD {statistics.stdev(sds):.1f}ms")
-        else:
-            print(f"trial-to-trial SD (correct): {sds[0]:.1f}ms")
+    print("-" * len(header))
+
+    def msd(vals):
+        """(mean, sd, min, max) for a list of numbers; sd is None if <2."""
+        if not vals:
+            return None, None, None, None
+        m = statistics.mean(vals)
+        s = statistics.stdev(vals) if len(vals) >= 2 else None
+        return m, s, min(vals), max(vals)
+
+    means = [r["rt_mean_ms"] for r in rows_out if isinstance(r["rt_mean_ms"], (int, float))]
+    sds   = [r["rt_sd_ms"]   for r in rows_out if isinstance(r["rt_sd_ms"],   (int, float))]
+    accs  = [r["acc_pct"]    for r in rows_out if isinstance(r["acc_pct"],    (int, float))]
+
+    print("Between-subject summary (N={}):".format(len(rows_out)))
+    m, s, lo, hi = msd(means)
+    if m is not None:
+        print(f"  mean RT      : grand mean {m:.1f}ms, BETWEEN-SUBJECT SD {fmt(s)}ms, range {lo:.1f}-{hi:.1f}ms")
+    m, s, lo, hi = msd(sds)
+    if m is not None:
+        print(f"  trial SD     : mean {m:.1f}ms, between-subject SD {fmt(s)}ms, range {lo:.1f}-{hi:.1f}ms")
+    m, s, lo, hi = msd(accs)
+    if m is not None:
+        print(f"  accuracy %   : mean {m:.1f}, between-subject SD {fmt(s)}, range {lo:.1f}-{hi:.1f}")
 
     # ---- CSV 保存 ----
     out_dir = os.path.join(root, OUTPUT_DIR)
