@@ -625,9 +625,9 @@ CanvasGroup:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 435720987}
   m_Enabled: 1
-  m_Alpha: 1
-  m_Interactable: 1
-  m_BlocksRaycasts: 1
+  m_Alpha: 0
+  m_Interactable: 0
+  m_BlocksRaycasts: 0
   m_IgnoreParentGroups: 0
 --- !u!114 &435720992
 MonoBehaviour:
@@ -645,6 +645,7 @@ MonoBehaviour:
   phaseNameText: {fileID: 1092431945}
   instructionText: {fileID: 1133400323}
   pressSpaceText: {fileID: 1843890716}
+  showInEditor: 0
 --- !u!1 &591568267
 GameObject:
   m_ObjectHideFlags: 0
@@ -1407,23 +1408,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 16d707c138ccc134e8ec4ca33fc84763, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ReactionTest.Experiment.TrialEngine
-  stimulusImage: {fileID: 422228440}
-  leftColor: {r: 0, g: 1, b: 0, a: 1}
-  rightColor: {r: 1, g: 0, b: 0, a: 1}
-  minPreStimulusWaitSec: 0.8
-  maxPreStimulusWaitSec: 1.6
-  responseWindowSec: 1
+  arduinoLink: {fileID: 0}
+  emsController: {fileID: 1448350857}
   feedbackText: {fileID: 785305211}
   showReactionTimeFeedback: 1
   feedbackDurationSec: 0.8
-  practiceTrials: 15
-  baselineTrials: 40
-  emsLatencyTrialsPerSide: 15
-  trainingTrials: 40
-  postTestTrials: 40
-  emsLatencyIntervalMin: 2
-  emsLatencyIntervalMax: 4
-  emsController: {fileID: 1448350857}
+  resultTimeoutSec: 3
 --- !u!1 &1321626896
 GameObject:
   m_ObjectHideFlags: 0
@@ -1563,7 +1553,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1350308966
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1679,8 +1669,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c6f7cf0ae8aee6498e600182341cabf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ReactionTest.Experiment.EMSController
-  portName: COM5
-  baudRate: 9600
+  arduinoLink: {fileID: 0}
   emsEnabled: 1
   pulseWidth: 50
   pulseCount: 1
@@ -1953,15 +1942,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e240a34f2bd83ae40bff4c05eb18e511, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ReactionTest.Experiment.ExperimentOrchestrator
+  arduinoLink: {fileID: 0}
   trialEngine: {fileID: 1311735379}
-  agencySurveyUI: {fileID: 902531156}
   dataLogger: {fileID: 1977360974}
   subjectDataManager: {fileID: 1227711570}
   phaseTransitionUI: {fileID: 435720992}
   emsController: {fileID: 1448350857}
   subjectId: Test
-  groupType: 0
-  maxCalibrationTrials: 80
+  subjectIndex: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
