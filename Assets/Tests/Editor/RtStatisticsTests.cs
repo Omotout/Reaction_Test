@@ -62,5 +62,38 @@ namespace ReactionTest.Experiment.Tests
             Assert.AreEqual(0f, RtStatistics.SampleStdDev(new List<float>()));
             Assert.AreEqual(0f, RtStatistics.SampleStdDev(new List<float>{42}));
         }
+
+        [Test]
+        public void Qn_MatchesQ10AndClampsRange()
+        {
+            var data = new List<float> { 1,2,3,4,5,6,7,8,9,10 };
+            Assert.AreEqual(1.9f, RtStatistics.Qn(data, 10f), 1e-4f);
+            Assert.AreEqual(RtStatistics.Median(data), RtStatistics.Qn(data, 50f), 1e-4f);
+            // 範囲外は [0,100] にクランプ
+            Assert.AreEqual(1f, RtStatistics.Qn(data, -5f), 1e-4f);
+            Assert.AreEqual(10f, RtStatistics.Qn(data, 150f), 1e-4f);
+        }
+
+        [Test]
+        public void MeanMinusKsd_KnownValue()
+        {
+            // {2,4,4,4,5,5,7,9}: mean=5, SD=2.13809... → mean-1×SD = 2.8619, mean-2×SD = 0.7238
+            var data = new List<float>{2,4,4,4,5,5,7,9};
+            Assert.AreEqual(5f - 2.13809f, RtStatistics.MeanMinusKsd(data, 1f), 1e-3f);
+            Assert.AreEqual(5f - 2f * 2.13809f, RtStatistics.MeanMinusKsd(data, 2f), 1e-3f);
+            Assert.AreEqual(0f, RtStatistics.MeanMinusKsd(new List<float>(), 1f));
+        }
+
+        [Test]
+        public void ComputeBaseline_DispatchesByMethod()
+        {
+            var data = new List<float>{2,4,4,4,5,5,7,9};
+            // Percentile経路はQnと一致
+            Assert.AreEqual(RtStatistics.Qn(data, 10f),
+                RtStatistics.ComputeBaseline(data, BaselineMethod.Percentile, 10f, 99f), 1e-4f);
+            // SD経路はMeanMinusKsdと一致（nは無視）
+            Assert.AreEqual(RtStatistics.MeanMinusKsd(data, 1f),
+                RtStatistics.ComputeBaseline(data, BaselineMethod.Sd, 99f, 1f), 1e-3f);
+        }
     }
 }

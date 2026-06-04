@@ -9,7 +9,7 @@ namespace ReactionTest.Experiment
     /// <summary>
     /// FastestBaseline 実験の司令塔。1セッション＝1条件（EMS or Voluntary、別日カウンターバランス）。
     /// フェーズ: Pre → (EMSLatency: EMS条件のみ) → Training1 → Post1 → 休憩 → Training2 → Post2。
-    /// 刺激提示・RT計測・EMS発火はArduino側。Unityはフェーズ進行・Q10算出・EMSタイミング計算・記録。
+    /// 刺激提示・RT計測・EMS発火はArduino側。Unityはフェーズ進行・FastestBaseline算出・EMSタイミング計算・記録。
     /// </summary>
     public class ExperimentOrchestrator : MonoBehaviour
     {
@@ -31,7 +31,7 @@ namespace ReactionTest.Experiment
         private SRMapping _mapping;
         private string _sessionDate;
         private string _sessionPath;
-        private float _q10L, _q10R, _e2tL, _e2tR;
+        private float _baselineL, _baselineR, _e2tL, _e2tR;
         private bool _aborted;
 
         [Serializable]
@@ -40,7 +40,9 @@ namespace ReactionTest.Experiment
             public string SubjectId;
             public string Condition;
             public string SessionDate;
-            public float Q10Left, Q10Right, EmsToTouchLeft, EmsToTouchRight;
+            public string BaselineMethod;
+            public float BaselineParameter;
+            public float BaselineLeft, BaselineRight, EmsToTouchLeft, EmsToTouchRight;
             public float MedianPre, MedianPost1, MedianPost2, Gain;
         }
 
@@ -85,20 +87,23 @@ namespace ReactionTest.Experiment
             dataLogger.InitializeWithPath(meta, _sessionPath);
             Debug.Log($"Session {sessionNumber}: condition={_condition}, mapping={_mapping}, subjectIndex={subjectIndex}");
 
-            // ── Pre（EMSなし）→ Q10(左右別) ──
+            // ── Pre（EMSなし）→ FastestBaseline(左右別) ──
             var preRTs = new List<float>();
             var preL = new List<float>();
             var preR = new List<float>();
             yield return ShowTransition("Pre", $"赤/緑のLEDが点きます。対応する指でできるだけ速くタッチ。\n{_config.PreTrials} 試行");
             yield return RunBlock(PhaseType.Pre, _config.PreTrials, meta.SeedPre, preRTs, preL, preR);
             if (_aborted) { yield return Finish(true); yield break; }
-            _q10L = RtStatistics.Q10(preL);
-            _q10R = RtStatistics.Q10(preR);
-            Debug.Log($"Q10 Left={_q10L:F1}ms (n={preL.Count}), Right={_q10R:F1}ms (n={preR.Count})");
+            _baselineL = RtStatistics.ComputeBaseline(preL, _config.BaselineMethod, _config.BaselinePercentileN, _config.BaselineSdMultiplier);
+            _baselineR = RtStatistics.ComputeBaseline(preR, _config.BaselineMethod, _config.BaselinePercentileN, _config.BaselineSdMultiplier);
+            string baselineDesc = _config.BaselineMethod == BaselineMethod.Sd
+                ? $"mean−{_config.BaselineSdMultiplier:F2}×SD"
+                : $"Q{_config.BaselinePercentileN:F0}";
+            Debug.Log($"Baseline({baselineDesc}) Left={_baselineL:F1}ms (n={preL.Count}), Right={_baselineR:F1}ms (n={preR.Count})");
             if (preL.Count < 5 || preR.Count < 5)
             {
                 Debug.LogWarning($"Pre correct-trial count is low (L={preL.Count}, R={preR.Count}). " +
-                                 $"Q10 may be unreliable; EMS fire timing for a side with 0 correct trials would clamp to 0.");
+                                 $"Baseline may be unreliable; EMS fire timing for a side with 0 correct trials would clamp to 0.");
             }
 
             // ── EMSLatency（EMS条件のみ）──
@@ -111,29 +116,33 @@ namespace ReactionTest.Experiment
 
             subjectDataManager.SaveCalibration(new CalibrationData
             {
-                Q10Left = _q10L, Q10Right = _q10R, EmsToTouchLeft = _e2tL, EmsToTouchRight = _e2tR
+                BaselineMethod = _config.BaselineMethod,
+                BaselineParameter = _config.BaselineMethod == BaselineMethod.Sd
+                    ? _config.BaselineSdMultiplier : _config.BaselinePercentileN,
+                BaselineLeft = _baselineL, BaselineRight = _baselineR,
+                EmsToTouchLeft = _e2tL, EmsToTouchRight = _e2tR
             });
 
             // ── Training1 → Post1 → 休憩 → Training2 → Post2 ──
             var post1 = new List<float>();
             var post2 = new List<float>();
 
-            yield return ShowTransition("Training 1", BlockInstruction(_config.TrainingTrials));
-            yield return RunBlock(PhaseType.Training1, _config.TrainingTrials, meta.SeedTraining1, null, null, null);
+            yield return ShowTransition("Training 1", BlockInstruction(_config.Training1Trials));
+            yield return RunBlock(PhaseType.Training1, _config.Training1Trials, meta.SeedTraining1, null, null, null);
             if (_aborted) { yield return Finish(true); yield break; }
 
-            yield return ShowTransition("Post 1", BlockInstruction(_config.PostTrials));
-            yield return RunBlock(PhaseType.Post1, _config.PostTrials, meta.SeedPost1, post1, null, null);
+            yield return ShowTransition("Post 1", BlockInstruction(_config.Post1Trials));
+            yield return RunBlock(PhaseType.Post1, _config.Post1Trials, meta.SeedPost1, post1, null, null);
             if (_aborted) { yield return Finish(true); yield break; }
 
             yield return ShowTransition("休憩", "少し休憩してください。\n準備ができたら続行します。");
 
-            yield return ShowTransition("Training 2", BlockInstruction(_config.TrainingTrials));
-            yield return RunBlock(PhaseType.Training2, _config.TrainingTrials, meta.SeedTraining2, null, null, null);
+            yield return ShowTransition("Training 2", BlockInstruction(_config.Training2Trials));
+            yield return RunBlock(PhaseType.Training2, _config.Training2Trials, meta.SeedTraining2, null, null, null);
             if (_aborted) { yield return Finish(true); yield break; }
 
-            yield return ShowTransition("Post 2", BlockInstruction(_config.PostTrials));
-            yield return RunBlock(PhaseType.Post2, _config.PostTrials, meta.SeedPost2, post2, null, null);
+            yield return ShowTransition("Post 2", BlockInstruction(_config.Post2Trials));
+            yield return RunBlock(PhaseType.Post2, _config.Post2Trials, meta.SeedPost2, post2, null, null);
             if (_aborted) { yield return Finish(true); yield break; }
 
             // ── median / gain ──
@@ -198,16 +207,16 @@ namespace ReactionTest.Experiment
             dataLogger.FlushBuffer();
         }
 
-        /// <summary>Training かつ EMS条件のときのみ発火。emsSide=correctHand, delay=Q10-offset-EMS_to_Touch。</summary>
+        /// <summary>Training かつ EMS条件のときのみ発火。emsSide=correctHand, delay=Baseline-offset-EMS_to_Touch。</summary>
         private (UserAction emsSide, int emsDelayUs, float fireMs) ComputeEms(PhaseType phase, UserAction correctHand)
         {
             bool isTraining = phase == PhaseType.Training1 || phase == PhaseType.Training2;
             if (!(isTraining && EMSPolicy.ShouldFire(_condition)))
                 return (UserAction.None, 0, 0f);
 
-            float q10 = correctHand == UserAction.Left ? _q10L : _q10R;
+            float baseline = correctHand == UserAction.Left ? _baselineL : _baselineR;
             float e2t = correctHand == UserAction.Left ? _e2tL : _e2tR;
-            float fireMs = EMSPolicy.ComputeFireTimingMs(q10, _config.EmsOffsetMs, e2t);
+            float fireMs = EMSPolicy.ComputeFireTimingMs(baseline, _config.EmsOffsetMs, e2t);
             if (fireMs < 0f)
             {
                 Debug.LogWarning($"Fire timing < 0 ({fireMs:F1}ms) → clamp 0.");
@@ -289,7 +298,10 @@ namespace ReactionTest.Experiment
                 SubjectId = subjectId,
                 Condition = _condition.ToString(),
                 SessionDate = _sessionDate,
-                Q10Left = _q10L, Q10Right = _q10R,
+                BaselineMethod = _config.BaselineMethod.ToString(),
+                BaselineParameter = _config.BaselineMethod == BaselineMethod.Sd
+                    ? _config.BaselineSdMultiplier : _config.BaselinePercentileN,
+                BaselineLeft = _baselineL, BaselineRight = _baselineR,
                 EmsToTouchLeft = _e2tL, EmsToTouchRight = _e2tR,
                 MedianPre = medPre, MedianPost1 = medPost1, MedianPost2 = medPost2, Gain = gain
             };

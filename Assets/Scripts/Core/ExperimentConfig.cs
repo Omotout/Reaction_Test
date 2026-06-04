@@ -11,11 +11,18 @@ namespace ReactionTest.Experiment
     [Serializable]
     public class ExperimentConfig
     {
-        // 試行数
+        // 試行数（各フェーズ独立設定）
         public int PreTrials = 80;
         public int EmsLatencyTrials = 30;
-        public int TrainingTrials = 60;
-        public int PostTrials = 80;
+        public int Training1Trials = 60;
+        public int Post1Trials = 60;
+        public int Training2Trials = 60;
+        public int Post2Trials = 60;
+
+        // FastestBaseline 算出法
+        public BaselineMethod BaselineMethod = BaselineMethod.Percentile;
+        public float BaselinePercentileN = 10f;   // Percentile時: 下位 n%（既定 10 = Q10）
+        public float BaselineSdMultiplier = 1.0f; // Sd時: mean − k × SD（既定 k=1.0）
 
         // EMSタイミング
         public float EmsOffsetMs = 0f;   // 0=FastestBaseline, >0=agency_EMS

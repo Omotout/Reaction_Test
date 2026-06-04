@@ -32,7 +32,8 @@ namespace ReactionTest.Experiment.Tests
                 Assert.AreEqual(40, cfg.PreTrials);
                 Assert.AreEqual(40f, cfg.EmsOffsetMs);
                 // 部分JSON: 指定外フィールドは既定値が保持される
-                Assert.AreEqual(80, cfg.PostTrials);
+                Assert.AreEqual(60, cfg.Post1Trials);
+                Assert.AreEqual(60, cfg.Post2Trials);
                 Assert.AreEqual(4f, cfg.EmsToTouchStabilitySdMs);
             }
             finally { if (File.Exists(path)) File.Delete(path); }
@@ -49,6 +50,13 @@ namespace ReactionTest.Experiment.Tests
                 var reread = ExperimentConfig.LoadOrCreate(path);
                 Assert.AreEqual(80, reread.PreTrials);
                 Assert.AreEqual(30, reread.EmsLatencyTrials);
+                Assert.AreEqual(60, reread.Training1Trials);
+                Assert.AreEqual(60, reread.Training2Trials);
+                Assert.AreEqual(60, reread.Post1Trials);
+                Assert.AreEqual(60, reread.Post2Trials);
+                Assert.AreEqual(BaselineMethod.Percentile, reread.BaselineMethod);
+                Assert.AreEqual(10f, reread.BaselinePercentileN);
+                Assert.AreEqual(1.0f, reread.BaselineSdMultiplier);
                 Assert.AreEqual(40000, reread.EmsPulseIntervalUs);
                 Assert.AreEqual(4f, reread.EmsToTouchStabilitySdMs);
             }

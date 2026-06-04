@@ -27,6 +27,27 @@ namespace ReactionTest.Experiment
         /// <summary>FastestBaseline = 正答RTの下位10パーセンタイル。</summary>
         public static float Q10(IEnumerable<float> correctRTs) => Percentile(correctRTs, 0.10f);
 
+        /// <summary>下位 n パーセンタイル（n: 0..100）。n=10 で Q10 と同等。</summary>
+        public static float Qn(IEnumerable<float> correctRTs, float nPercent)
+            => Percentile(correctRTs, Math.Max(0f, Math.Min(100f, nPercent)) / 100f);
+
+        /// <summary>FastestBaseline(SD法) = mean − k × SampleStdDev。負値は呼び出し側でクランプ。</summary>
+        public static float MeanMinusKsd(IEnumerable<float> correctRTs, float k)
+        {
+            var list = correctRTs as IList<float> ?? correctRTs.ToList();
+            if (list.Count == 0) return 0f;
+            return Mean(list) - k * SampleStdDev(list);
+        }
+
+        /// <summary>BaselineMethodに従って FastestBaseline を計算するファサード。</summary>
+        public static float ComputeBaseline(
+            IEnumerable<float> correctRTs, BaselineMethod method, float nPercent, float sdMultiplier)
+        {
+            return method == BaselineMethod.Sd
+                ? MeanMinusKsd(correctRTs, sdMultiplier)
+                : Qn(correctRTs, nPercent);
+        }
+
         public static float Median(IEnumerable<float> values) => Percentile(values, 0.50f);
 
         public static float Mean(IEnumerable<float> values)

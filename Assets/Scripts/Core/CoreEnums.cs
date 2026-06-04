@@ -44,6 +44,13 @@ namespace ReactionTest.Experiment
         Lapse
     }
 
+    /// <summary>FastestBaseline 算出法。Percentile=下位n%、Sd=mean − k×SD。</summary>
+    public enum BaselineMethod
+    {
+        Percentile,
+        Sd
+    }
+
     /// <summary>
     /// 実験フェーズ（FastestBaseline 枠組み）。1セッション＝1条件（EMS or Voluntary）。
     /// Pre → (EMSLatency:EMS条件のみ) → Training1 → Post1 → 休憩 → Training2 → Post2

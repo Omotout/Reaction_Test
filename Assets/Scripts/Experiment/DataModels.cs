@@ -47,8 +47,10 @@ namespace ReactionTest.Experiment
     [Serializable]
     public class CalibrationData
     {
-        public float Q10Left;
-        public float Q10Right;
+        public BaselineMethod BaselineMethod;
+        public float BaselineParameter;   // Percentile時=n%、Sd時=k
+        public float BaselineLeft;
+        public float BaselineRight;
         public float EmsToTouchLeft;
         public float EmsToTouchRight;
     }
