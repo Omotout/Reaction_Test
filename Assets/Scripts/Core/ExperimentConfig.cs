@@ -35,7 +35,7 @@ namespace ReactionTest.Experiment
         // Deadline mode: 初期 deadline の決定方法
         public DeadlineInitMode DeadlineInitMode = DeadlineInitMode.Manual;
         // PreMedianOffset 時: deadline = preMedian(side) − DeadlineOffsetFromMedianMs
-        public float DeadlineOffsetFromMedianMs = 10f;
+        public float DeadlineOffsetFromMedianMs = 0f;
 
         // Deadline mode: 適応的 deadline 更新
         public bool UseAdaptiveDeadline = false;
