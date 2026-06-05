@@ -204,18 +204,60 @@ int splitCsv(const String &s, String out[], int maxTok) {
   return n;
 }
 
+// ---------------- Safe numeric parsing ----------------
+// Strict integer parser: requires non-empty all-digit token (optional leading '-').
+// Replaces String.toInt() which silently returns 0 for non-numeric input.
+// Returns true on success and writes the parsed value to *out;
+// returns false on empty/non-digit/out-of-range input.
+bool parseLongStrict(const String &s, long lo, long hi, long *out) {
+  int len = s.length();
+  if (len == 0) return false;
+  int i = 0;
+  bool negative = false;
+  if (s[0] == '-') { negative = true; i = 1; if (len == 1) return false; }
+  long val = 0;
+  for (; i < len; ++i) {
+    char c = s[i];
+    if (c < '0' || c > '9') return false;
+    long digit = c - '0';
+    // overflow guard: val*10 + digit must fit in long
+    if (val > (2147483647L - digit) / 10) return false;
+    val = val * 10 + digit;
+  }
+  if (negative) val = -val;
+  if (val < lo || val > hi) return false;
+  *out = val;
+  return true;
+}
+
 // ---------------- FastestBaseline trial ----------------
 // TRIAL,<id>,<led>,<resp>,<emsSide>,<emsDelayUs>
+// emsDelayUs is clamped to [0, 10_000_000] (10s) — well above any plausible
+// session timing. Non-numeric / out-of-range parse aborts the trial without
+// firing EMS, since a malformed delay must not be silently treated as 0us.
 void runTrialCmd(const String &cmd) {
   String tok[6];
   int n = splitCsv(cmd, tok, 6);
   if (n < 6) { Serial.println(F("ERR:TRIAL:ARGS")); return; }
 
-  long id          = tok[1].toInt();
+  long id = 0, emsDelayLong = 0;
+  if (!parseLongStrict(tok[1], 0, 2147483647L, &id)) {
+    Serial.println(F("ERR:TRIAL:NUMERIC:id")); return;
+  }
+  if (!parseLongStrict(tok[5], 0, 10000000L, &emsDelayLong)) {
+    Serial.print(F("ERR:TRIAL:NUMERIC:emsDelayUs,")); Serial.println(id);
+    return;
+  }
   char led         = tok[2].length() ? tok[2][0] : 'R';
   // tok[3] = resp (informational; detection is bilateral)
   char emsSide     = tok[4].length() ? tok[4][0] : 'N';
-  unsigned long emsDelayUs = (unsigned long) tok[5].toInt();
+  if (led != 'R' && led != 'G') {
+    Serial.print(F("ERR:TRIAL:LED,")); Serial.println(id); return;
+  }
+  if (emsSide != 'R' && emsSide != 'L' && emsSide != 'N') {
+    Serial.print(F("ERR:TRIAL:EMSSIDE,")); Serial.println(id); return;
+  }
+  unsigned long emsDelayUs = (unsigned long) emsDelayLong;
 
   int ledPin = (led == 'G') ? PIN_LED_GREEN : PIN_LED_RED;
 
@@ -266,12 +308,18 @@ void runEmsLatCmd(const String &cmd) {
   int n = splitCsv(cmd, tok, 3);
   if (n < 3) { Serial.println(F("ERR:EMSLAT:ARGS")); return; }
 
-  long id  = tok[1].toInt();
+  long id = 0;
+  if (!parseLongStrict(tok[1], 0, 2147483647L, &id)) {
+    Serial.println(F("ERR:EMSLAT:NUMERIC:id")); return;
+  }
   char side = tok[2].length() ? tok[2][0] : 'R';
+  if (side != 'R' && side != 'L') {
+    Serial.print(F("ERR:EMSLAT:SIDE,")); Serial.println(id); return;
+  }
 
   int emsA, emsB, recvPin, thr;
   if (side == 'L') { emsA = PIN_EMS_LEFT_A;  emsB = PIN_EMS_LEFT_B;  recvPin = PIN_RECV_LEFT;  thr = thresholdLeft; }
-  else             { emsA = PIN_EMS_RIGHT_A; emsB = PIN_EMS_RIGHT_B; recvPin = PIN_RECV_RIGHT; thr = thresholdRight; side = 'R'; }
+  else             { emsA = PIN_EMS_RIGHT_A; emsB = PIN_EMS_RIGHT_B; recvPin = PIN_RECV_RIGHT; thr = thresholdRight; }
 
   allLedsOff();
   unsigned long t0 = micros();   // t0 = EMS onset
@@ -292,25 +340,35 @@ void runEmsLatCmd(const String &cmd) {
 }
 
 // THR,<side>,<value>
+// value must be 1..10000 (capacitive count units).
 void runThrCmd(const String &cmd) {
   String tok[3];
   int n = splitCsv(cmd, tok, 3);
   if (n < 3) { Serial.println(F("ERR:THR:ARGS")); return; }
   char side = tok[1].length() ? tok[1][0] : 'R';
-  int value = tok[2].toInt();
-  if (side == 'L') thresholdLeft = value; else thresholdRight = value;
+  if (side != 'R' && side != 'L') { Serial.println(F("ERR:THR:SIDE")); return; }
+  long value = 0;
+  if (!parseLongStrict(tok[2], 1, 10000, &value)) { Serial.println(F("ERR:THR:NUMERIC:value")); return; }
+  if (side == 'L') thresholdLeft = (int)value; else thresholdRight = (int)value;
   Serial.print(F("OK:THR:")); Serial.print(side); Serial.print(':'); Serial.println(value);
 }
 
 // EMSCFG,<width>,<count>,<burst>,<interval>
+// Ranges: width=1..10000us, count=1..100, burst=1..100, interval=0..1_000_000us.
+// On any out-of-range / non-numeric token, all four parameters stay unchanged.
 void runEmsCfgCmd(const String &cmd) {
   String tok[5];
   int n = splitCsv(cmd, tok, 5);
   if (n < 5) { Serial.println(F("ERR:EMSCFG:ARGS")); return; }
-  pulseWidth    = tok[1].toInt();
-  pulseCount    = tok[2].toInt();
-  burstCount    = tok[3].toInt();
-  pulseInterval = tok[4].toInt();
+  long w = 0, c = 0, b = 0, intv = 0;
+  if (!parseLongStrict(tok[1], 1, 10000, &w))      { Serial.println(F("ERR:EMSCFG:NUMERIC:width")); return; }
+  if (!parseLongStrict(tok[2], 1, 100, &c))        { Serial.println(F("ERR:EMSCFG:NUMERIC:count")); return; }
+  if (!parseLongStrict(tok[3], 1, 100, &b))        { Serial.println(F("ERR:EMSCFG:NUMERIC:burst")); return; }
+  if (!parseLongStrict(tok[4], 0, 1000000, &intv)) { Serial.println(F("ERR:EMSCFG:NUMERIC:interval")); return; }
+  pulseWidth    = (int)w;
+  pulseCount    = (int)c;
+  burstCount    = (int)b;
+  pulseInterval = (int)intv;
   Serial.print(F("OK:EMSCFG:")); Serial.print(pulseWidth); Serial.print(',');
   Serial.print(pulseCount); Serial.print(','); Serial.print(burstCount); Serial.print(',');
   Serial.println(pulseInterval);
