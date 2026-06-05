@@ -133,6 +133,10 @@ int readPinFast(int recvPin) {
   return t;
 }
 
+bool isTouchDetected(int value, int threshold) {
+  return value >= threshold;
+}
+
 // ---------------- Stats helpers ----------------
 void statsReset() { bMin = 2147483647L; bMax = -2147483648L; bN = 0; bMean = 0; bM2 = 0; }
 void statsUpdate(long x) {
@@ -284,9 +288,9 @@ void runTrialCmd(const String &cmd) {
       emsFired = true;
     }
     int vR = readPinFast(PIN_RECV_RIGHT);
-    if (vR > thresholdRight) { rtUs = micros() - t0; peak = vR; touched = 'R'; break; }
+    if (isTouchDetected(vR, thresholdRight)) { rtUs = micros() - t0; peak = vR; touched = 'R'; break; }
     int vL = readPinFast(PIN_RECV_LEFT);
-    if (vL > thresholdLeft)  { rtUs = micros() - t0; peak = vL; touched = 'L'; break; }
+    if (isTouchDetected(vL, thresholdLeft))  { rtUs = micros() - t0; peak = vL; touched = 'L'; break; }
   }
   digitalWrite(ledPin, LOW);
 
@@ -331,7 +335,7 @@ void runEmsLatCmd(const String &cmd) {
   unsigned long t0ms = millis();
   while (millis() - t0ms < RESP_WINDOW_MS) {
     int v = readPinFast(recvPin);
-    if (v > thr) { latUs = micros() - t0; detected = true; break; }
+    if (isTouchDetected(v, thr)) { latUs = micros() - t0; detected = true; break; }
   }
 
   Serial.print(F("EMSLAT_RESULT,")); Serial.print(id); Serial.print(','); Serial.print(side); Serial.print(',');

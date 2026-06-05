@@ -161,9 +161,9 @@ namespace ReactionTest.Experiment
             };
 
             if (showReactionTimeFeedback && !res.TimedOut && res.RtMs > 0f)
-                yield return ShowFeedback($"{res.RtMs:F0} ms", Color.white);
+                yield return ShowFeedback($"{res.RtMs:F0} ms", Color.black);
             else if (showReactionTimeFeedback)
-                yield return ShowFeedback(res.TimedOut ? "—" : "?", Color.gray);
+                yield return ShowFeedback(res.TimedOut ? "—" : "?", new Color(0.25f, 0.25f, 0.25f));
 
             onCompleted?.Invoke(record);
         }
@@ -198,7 +198,7 @@ namespace ReactionTest.Experiment
 
             float latency = (_hasLatResult && !_lastLatResult.TimedOut) ? _lastLatResult.LatencyMs : -1f;
             if (showReactionTimeFeedback && latency > 0f)
-                yield return ShowFeedback($"{latency:F0} ms", Color.cyan);
+                yield return ShowFeedback($"{latency:F0} ms", new Color(0f, 0.45f, 0.65f));
             onLatencyMs?.Invoke(latency);
         }
 
@@ -217,6 +217,7 @@ namespace ReactionTest.Experiment
         private IEnumerator ShowFeedback(string msg, Color color)
         {
             if (feedbackText == null) yield break;
+            ConfigureFeedbackText();
             feedbackText.text = msg;
             feedbackText.color = color;
             feedbackText.gameObject.SetActive(true);
@@ -227,6 +228,23 @@ namespace ReactionTest.Experiment
         private void HideFeedback()
         {
             if (feedbackText != null) feedbackText.gameObject.SetActive(false);
+        }
+
+        private void ConfigureFeedbackText()
+        {
+            if (feedbackText == null) return;
+
+            var rect = feedbackText.rectTransform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(500f, 120f);
+
+            feedbackText.alignment = TextAnchor.MiddleCenter;
+            feedbackText.fontSize = 44;
+            feedbackText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            feedbackText.verticalOverflow = VerticalWrapMode.Overflow;
         }
     }
 }

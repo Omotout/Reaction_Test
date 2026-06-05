@@ -21,14 +21,22 @@ namespace ReactionTest.Experiment
     {
         [SerializeField] private string dataFolderName = "ExperimentData";
 
+        [Header("Manual Session Override")]
+        [Tooltip("ON: use the session number and condition below instead of the saved counterbalance session.")]
+        [SerializeField] private bool useManualSessionSettings = false;
+        [SerializeField, Range(1, 2)] private int manualSessionNumber = 1;
+        [SerializeField] private ExperimentCondition manualCondition = ExperimentCondition.EMS;
+
         private string _rootPath;
         private SubjectConfig _currentConfig;
         private string _currentSessionPath;
+        private int _currentSessionNumber;
+        private ExperimentCondition _currentCondition;
 
         public SubjectConfig CurrentConfig => _currentConfig;
         public string CurrentSessionPath => _currentSessionPath;
         public string RootPath => _rootPath;
-        public int CurrentSessionNumber => _currentConfig != null ? _currentConfig.LatestSessionNumber : 0;
+        public int CurrentSessionNumber => _currentSessionNumber;
         public SRMapping CurrentMapping => _currentConfig != null ? _currentConfig.Mapping : SRMapping.RedRight;
 
         private void Awake()
@@ -78,17 +86,45 @@ namespace ReactionTest.Experiment
         {
             if (_currentConfig == null) { Debug.LogError("Subject not loaded."); return null; }
             string subjectPath = Path.Combine(_rootPath, _currentConfig.SubjectId);
-            _currentConfig.LatestSessionNumber++;
-            string folder = $"session_{_currentConfig.LatestSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
+            if (useManualSessionSettings)
+            {
+                _currentSessionNumber = Mathf.Clamp(manualSessionNumber, 1, 2);
+                _currentCondition = manualCondition;
+                Debug.LogWarning($"Manual session settings active: session={_currentSessionNumber}, condition={_currentCondition}. " +
+                                 "Saved counterbalance session count will not be advanced.");
+            }
+            else
+            {
+                _currentConfig.LatestSessionNumber++;
+                _currentSessionNumber = _currentConfig.LatestSessionNumber;
+                SaveConfig();
+                if (_currentSessionNumber <= 2)
+                    _currentCondition = Counterbalance.ConditionForSession(_currentConfig.Order, _currentSessionNumber);
+            }
+
+            string folder = $"session_{_currentSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
             _currentSessionPath = Path.Combine(subjectPath, folder);
             Directory.CreateDirectory(_currentSessionPath);
-            SaveConfig();
             Debug.Log($"Created session folder: {_currentSessionPath}");
             return _currentSessionPath;
         }
 
         public ExperimentCondition ConditionForCurrentSession()
-            => Counterbalance.ConditionForSession(_currentConfig.Order, _currentConfig.LatestSessionNumber);
+        {
+            if (useManualSessionSettings)
+                return _currentCondition;
+
+            int sessionNumber = _currentSessionNumber;
+
+            if (sessionNumber > 2)
+            {
+                Debug.LogError($"Subject {_currentConfig.SubjectId} already has {sessionNumber - 1} completed/created sessions. " +
+                               "This experiment supports only session 1 and 2 for counterbalancing. " +
+                               "Use a new subject ID such as Test1/Test2 for pilot runs.");
+            }
+
+            return Counterbalance.ConditionForSession(_currentConfig.Order, sessionNumber);
+        }
 
         public void SaveCalibration(CalibrationData data)
         {

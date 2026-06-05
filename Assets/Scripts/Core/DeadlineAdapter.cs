@@ -48,6 +48,13 @@ namespace ReactionTest.Experiment
             if (medianMs <= 0f) return -1f;
             return Mathf.Clamp(medianMs - offsetMs, minMs, maxMs);
         }
+
+        /// <summary>
+        /// Deadline mode の EMS 指示時刻を計算する。
+        /// deadlineMs は Unity が EMS 指令を出す時刻そのものとして扱う。
+        /// </summary>
+        public static float ComputeFireTimingMs(float deadlineMs)
+            => deadlineMs;
     }
 
     /// <summary>

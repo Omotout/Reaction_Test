@@ -87,6 +87,12 @@ namespace ReactionTest.Experiment.Tests
             Assert.AreEqual(-1f, DeadlineAdapter.DeriveFromMedian(0f, 10f, Min, Max), 1e-4f);
             Assert.AreEqual(-1f, DeadlineAdapter.DeriveFromMedian(-5f, 10f, Min, Max), 1e-4f);
         }
+
+        [Test]
+        public void ComputeFireTiming_UsesDeadlineAsCommandTime()
+        {
+            Assert.AreEqual(250f, DeadlineAdapter.ComputeFireTimingMs(250f), 1e-4f);
+        }
     }
 
     public class TrialOutcomeClassifierTests

@@ -30,6 +30,39 @@ namespace ReactionTest.Experiment
         [Tooltip("Game View に介入モード・現在の deadline・直近ブロック成功率を表示")]
         [SerializeField] private bool showRuntimeDebugOverlay = true;
 
+        [Header("Inspector Config Override")]
+        [Tooltip("ON: InterventionMode is taken from this Inspector instead of experiment_config.json.")]
+        [SerializeField] private bool useInspectorInterventionMode = true;
+        [SerializeField] private InterventionMode interventionMode = InterventionMode.Fastest;
+
+        [Tooltip("ON: trial counts below are taken from this Inspector instead of experiment_config.json.")]
+        [SerializeField] private bool useInspectorTrialCounts = true;
+        [SerializeField] private int preTrials = 80;
+        [SerializeField] private int emsLatencyTrials = 30;
+        [SerializeField] private int training1Trials = 60;
+        [SerializeField] private int post1Trials = 60;
+        [SerializeField] private int training2Trials = 60;
+        [SerializeField] private int post2Trials = 60;
+
+        [Tooltip("ON: touch thresholds below are taken from this Inspector instead of experiment_config.json.")]
+        [SerializeField] private bool useInspectorTouchThresholds = true;
+        [SerializeField] private int touchThresholdLeft = 1;
+        [SerializeField] private int touchThresholdRight = 1;
+
+        [Tooltip("ON: Deadline settings below are taken from this Inspector instead of experiment_config.json.")]
+        [SerializeField] private bool useInspectorDeadlineSettings = true;
+        [SerializeField] private DeadlineInitMode deadlineInitMode = DeadlineInitMode.Manual;
+        [SerializeField] private float leftDeadlineMs = 250f;
+        [SerializeField] private float rightDeadlineMs = 250f;
+        [SerializeField] private float deadlineOffsetFromMedianMs = 0f;
+        [SerializeField] private bool useAdaptiveDeadline = false;
+        [SerializeField] private float targetSuccessRateUpper = 0.70f;
+        [SerializeField] private float targetSuccessRateLower = 0.50f;
+        [SerializeField] private float deadlineStepMs = 10f;
+        [SerializeField] private float minDeadlineMs = 100f;
+        [SerializeField] private float maxDeadlineMs = 800f;
+        [SerializeField] private bool adaptiveDeadlinePerSide = false;
+
         private ExperimentConfig _config;
         private ExperimentCondition _condition;
         private SRMapping _mapping;
@@ -67,6 +100,7 @@ namespace ReactionTest.Experiment
 
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             _config = ExperimentConfig.LoadOrCreate(Path.Combine(projectRoot, "experiment_config.json"));
+            ApplyInspectorConfigOverrides();
 
             // Deadline mode の初期 deadline を config から取り込む（adaptive 更新で書き換え）
             _deadlineLeftMs = _config.LeftDeadlineMs;
@@ -162,21 +196,13 @@ namespace ReactionTest.Experiment
                           $"medL={medL:F1} medR={medR:F1} → deadline L={_deadlineLeftMs:F1}ms R={_deadlineRightMs:F1}ms");
             }
 
-            // ── EMSLatency（EMS条件のみ、Deadline mode は既定でスキップ）──
+            // ── EMSLatency（EMS条件のみ）──
+            // Deadline mode でも強度調整とログ記録のため測定する。
             _e2tL = 0f; _e2tR = 0f;
-            bool runEmsLatency = _condition == ExperimentCondition.EMS
-                && (_config.InterventionMode == InterventionMode.Fastest
-                    || _config.RunEmsLatencyInDeadlineMode);
-            if (runEmsLatency)
+            if (_condition == ExperimentCondition.EMS)
             {
                 yield return RunEMSLatency();
                 if (_aborted) { yield return Finish(true, _abortReason); yield break; }
-            }
-            else if (_condition == ExperimentCondition.EMS
-                     && _config.InterventionMode == InterventionMode.Deadline)
-            {
-                Debug.Log("Skipping EMSLatency (Deadline mode does not use EMS_to_Touch correction). " +
-                          "Set RunEmsLatencyInDeadlineMode=true to keep it for intensity calibration.");
             }
 
             subjectDataManager.SaveCalibration(new CalibrationData
@@ -218,6 +244,54 @@ namespace ReactionTest.Experiment
             WriteSummary(medPre, medPost1, medPost2, gain);
 
             yield return Finish(false, string.Empty);
+        }
+
+        private void ApplyInspectorConfigOverrides()
+        {
+            if (_config == null) return;
+
+            if (useInspectorInterventionMode)
+                _config.InterventionMode = interventionMode;
+
+            if (useInspectorTrialCounts)
+            {
+                _config.PreTrials = preTrials;
+                _config.EmsLatencyTrials = emsLatencyTrials;
+                _config.Training1Trials = training1Trials;
+                _config.Post1Trials = post1Trials;
+                _config.Training2Trials = training2Trials;
+                _config.Post2Trials = post2Trials;
+            }
+
+            if (useInspectorTouchThresholds)
+            {
+                _config.TouchThresholdLeft = touchThresholdLeft;
+                _config.TouchThresholdRight = touchThresholdRight;
+            }
+
+            if (useInspectorDeadlineSettings)
+            {
+                _config.DeadlineInitMode = deadlineInitMode;
+                _config.LeftDeadlineMs = leftDeadlineMs;
+                _config.RightDeadlineMs = rightDeadlineMs;
+                _config.DeadlineOffsetFromMedianMs = deadlineOffsetFromMedianMs;
+                _config.UseAdaptiveDeadline = useAdaptiveDeadline;
+                _config.TargetSuccessRateUpper = targetSuccessRateUpper;
+                _config.TargetSuccessRateLower = targetSuccessRateLower;
+                _config.DeadlineStepMs = deadlineStepMs;
+                _config.MinDeadlineMs = minDeadlineMs;
+                _config.MaxDeadlineMs = maxDeadlineMs;
+                _config.AdaptiveDeadlinePerSide = adaptiveDeadlinePerSide;
+            }
+
+            _config.Validate();
+            Debug.Log($"Effective config: mode={_config.InterventionMode}, deadlineInit={_config.DeadlineInitMode}, " +
+                      $"trials Pre={_config.PreTrials}, EMSLatency={_config.EmsLatencyTrials}, " +
+                      $"Training1={_config.Training1Trials}, Post1={_config.Post1Trials}, " +
+                      $"Training2={_config.Training2Trials}, Post2={_config.Post2Trials}, " +
+                      $"touchThreshold L={_config.TouchThresholdLeft} R={_config.TouchThresholdRight}, " +
+                      $"deadline L={_config.LeftDeadlineMs:F1}ms R={_config.RightDeadlineMs:F1}ms, " +
+                      $"adaptive={_config.UseAdaptiveDeadline}");
         }
 
         private string BlockInstruction(int trials)
@@ -404,8 +478,8 @@ namespace ReactionTest.Experiment
         /// 介入方式に応じて EMS 予定 (emsSide, emsDelayUs, fireMs[=DeadlineMs]) を決定。
         /// Training かつ EMS 条件のときのみ発火対象。
         ///  - Fastest: fireMs = baseline − offset − emsToTouch（先行発火）
-        ///  - Deadline: fireMs = leftDeadlineMs / rightDeadlineMs（deadline 時刻、emsToTouch 補正なし）
-        /// 戻り値 deadlineMs は CSV 記録専用（Fastest 時は -1）。
+        ///  - Deadline: fireMs = deadlineMs（EMS_to_Touch では前倒ししない）
+        /// 戻り値 deadlineMs は CSV 記録専用（Fastest 時は -1）、fireMs は EMS 指示時刻。
         /// </summary>
         private (UserAction emsSide, int emsDelayUs, float fireMs, float deadlineMs) ComputeEms(
             PhaseType phase, UserAction correctHand)
@@ -419,7 +493,7 @@ namespace ReactionTest.Experiment
             if (_config.InterventionMode == InterventionMode.Deadline)
             {
                 deadlineMs = correctHand == UserAction.Left ? _deadlineLeftMs : _deadlineRightMs;
-                fireMs = deadlineMs;
+                fireMs = DeadlineAdapter.ComputeFireTimingMs(deadlineMs);
             }
             else
             {

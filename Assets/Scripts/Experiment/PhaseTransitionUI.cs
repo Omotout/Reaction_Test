@@ -26,6 +26,7 @@ namespace ReactionTest.Experiment
 
         private void Awake()
         {
+            ConfigureTextLayout();
             HideImmediate();
         }
 
@@ -63,6 +64,8 @@ namespace ReactionTest.Experiment
                 yield break;
             }
 
+            ConfigureTextLayout();
+
             if (phaseNameText != null)
             {
                 phaseNameText.text = phaseName;
@@ -95,6 +98,30 @@ namespace ReactionTest.Experiment
             
             // 少し待機してから開始
             yield return new WaitForSeconds(0.5f);
+        }
+
+        private void ConfigureTextLayout()
+        {
+            ConfigureText(phaseNameText, new Vector2(0f, 130f), new Vector2(900f, 80f), 36);
+            ConfigureText(instructionText, new Vector2(0f, 15f), new Vector2(900f, 160f), 26);
+            ConfigureText(pressSpaceText, new Vector2(0f, -135f), new Vector2(900f, 50f), 22);
+        }
+
+        private static void ConfigureText(Text text, Vector2 position, Vector2 size, int fontSize)
+        {
+            if (text == null) return;
+
+            var rect = text.rectTransform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = position;
+            rect.sizeDelta = size;
+
+            text.alignment = TextAnchor.MiddleCenter;
+            text.fontSize = fontSize;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
         }
 
         private void Show(bool visible)

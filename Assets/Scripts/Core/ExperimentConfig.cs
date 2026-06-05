@@ -49,9 +49,9 @@ namespace ReactionTest.Experiment
         // Deadline mode: 誤反応後も deadline で EMS を発火するか（firmware 未対応のため警告のみ）
         public bool TriggerEmsAfterError = false;
 
-        // Deadline mode: EMSLatency フェーズを走らせるか。
-        // Deadline mode は EMS_to_Touch 補正を使わない設計なので既定はスキップ。
-        // EMS 強度キャリブのために必要なら true にする（取得値は記録するが deadline 計算には使われない）。
+        // Legacy compatibility only. EMSLatency now always runs in EMS sessions,
+        // including Deadline mode, for intensity tuning and logging. Deadline firing
+        // uses deadlineMs as the command time and does not subtract EMS_to_Touch.
         public bool RunEmsLatencyInDeadlineMode = false;
 
         // EMSタイミング（Fastest mode のみ使用）
