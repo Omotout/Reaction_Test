@@ -41,9 +41,37 @@ namespace ReactionTest.Experiment
         public ExclusionFlag ExclusionFlag;
         public bool EmsFired;
         public UserAction EmsSide;
-        public float EmsFireTimingMs;
+        public float EmsFireTimingMs;     // 予定発火時刻 (LED起点 ms)。Fastest=baseline−offset−emsToTouch / Deadline=deadlineMs
         public float EmsToTouchMs;
         public string Timestamp;          // ISO 8601
+
+        // Intervention extension（Fastest / Deadline 共通の解析を可能にする）
+        public InterventionMode InterventionMode;
+        public float DeadlineMs;          // Deadline mode の deadline。Fastest=-1
+        public bool ResponseBeforeDeadline;
+        public bool EmsScheduled;         // この試行で EMS が予定されていたか（Voluntary/Pre/Post=false）
+        public bool EmsCanceled;          // 予定されていたが発火しなかった（タッチ先行で Arduino loop exit）
+        public float TouchAfterEmsMs;     // EMS 発火から検出までの経過 (ms)。EMS未発火 or 反応なしは -1
+        public TrialOutcome Outcome;
+    }
+
+    /// <summary>
+    /// Deadline mode の block-by-block 適応イベント。deadline_adaptations.jsonl に1ブロック=1行で追記される。
+    /// </summary>
+    [Serializable]
+    public class DeadlineAdaptationEvent
+    {
+        public PhaseType Phase;
+        public int BlockTrials;           // このブロックの試行数
+        public int CountCorrectBeforeDeadline;
+        public int CountTotalNonTimeout;
+        public float SuccessRate;         // CorrectBeforeDeadline / TotalNonTimeout
+        public float DeadlineLeftMsBefore;
+        public float DeadlineRightMsBefore;
+        public float DeadlineLeftMsAfter;
+        public float DeadlineRightMsAfter;
+        public string Decision;           // "tighten" / "loosen" / "hold"
+        public string Timestamp;
     }
 
     /// <summary>セッション毎のキャリブレーション結果（左右別、calibration.jsonに保存）。</summary>

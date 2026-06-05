@@ -26,6 +26,10 @@ namespace ReactionTest.Experiment
         [Tooltip("被験者番号（0始まり）。カウンターバランス（条件順序・S-Rマッピング）の割当に使用。")]
         [SerializeField] private int subjectIndex = 0;
 
+        [Header("Debug")]
+        [Tooltip("Game View に介入モード・現在の deadline・直近ブロック成功率を表示")]
+        [SerializeField] private bool showRuntimeDebugOverlay = true;
+
         private ExperimentConfig _config;
         private ExperimentCondition _condition;
         private SRMapping _mapping;
@@ -34,6 +38,13 @@ namespace ReactionTest.Experiment
         private float _baselineL, _baselineR, _e2tL, _e2tR;
         private bool _aborted;
         private string _abortReason = string.Empty;
+
+        // Deadline mode 状態（adaptive 更新で書き換わる）
+        private float _deadlineLeftMs;
+        private float _deadlineRightMs;
+        // 直近の Training block 適応情報（debug display 用）
+        private float _lastBlockSuccessRate = -1f;
+        private PhaseType? _lastBlockPhase;
 
         [Serializable]
         private class SummaryData
@@ -45,6 +56,9 @@ namespace ReactionTest.Experiment
             public float BaselineParameter;
             public float BaselineLeft, BaselineRight, EmsToTouchLeft, EmsToTouchRight;
             public float MedianPre, MedianPost1, MedianPost2, Gain;
+            public string InterventionMode;
+            public float FinalDeadlineLeftMs;
+            public float FinalDeadlineRightMs;
         }
 
         private IEnumerator Start()
@@ -53,6 +67,15 @@ namespace ReactionTest.Experiment
 
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             _config = ExperimentConfig.LoadOrCreate(Path.Combine(projectRoot, "experiment_config.json"));
+
+            // Deadline mode の初期 deadline を config から取り込む（adaptive 更新で書き換え）
+            _deadlineLeftMs = _config.LeftDeadlineMs;
+            _deadlineRightMs = _config.RightDeadlineMs;
+            if (_config.InterventionMode == InterventionMode.Deadline && _config.TriggerEmsAfterError)
+            {
+                Debug.LogWarning("TriggerEmsAfterError=true は現行ファームウェアでは未対応のため false として扱います " +
+                                 "(Arduino loop は どちらの手でも touch で exit して EMS をキャンセルする)。");
+            }
 
             subjectDataManager.LoadOrCreateSubject(subjectId, subjectIndex);
             _sessionPath = subjectDataManager.CreateSessionFolder();
@@ -233,6 +256,21 @@ namespace ReactionTest.Experiment
             }
         }
 
+        /// <summary>介入モード・現在 deadline・直近ブロック成功率を画面右上にミニ表示（デバッグ用）。</summary>
+        private void OnGUI()
+        {
+            if (!showRuntimeDebugOverlay || _config == null) return;
+            string lastBlock = _lastBlockSuccessRate < 0f
+                ? "—"
+                : $"{_lastBlockPhase} {_lastBlockSuccessRate:P0}";
+            string text = $"Mode: {_config.InterventionMode}\n" +
+                          $"Deadline: L={_deadlineLeftMs:F0}ms R={_deadlineRightMs:F0}ms\n" +
+                          $"Last block: {lastBlock}";
+            if (_aborted) text += $"\nABORTED: {_abortReason}";
+            GUI.Label(new Rect(Screen.width - 280, 8, 270, 80), text,
+                new GUIStyle(GUI.skin.box) { alignment = TextAnchor.UpperLeft, fontSize = 12 });
+        }
+
         private bool ValidateRefs()
         {
             if (trialEngine == null || dataLogger == null || subjectDataManager == null || arduinoLink == null)
@@ -244,40 +282,65 @@ namespace ReactionTest.Experiment
             return true;
         }
 
-        /// <summary>1ブロック（Pre/Post/Training）を実行。correctRTs等はnull可（収集不要なら）。</summary>
+        /// <summary>1ブロック（Pre/Post/Training）を実行。correctRTs等はnull可（収集不要なら）。
+        /// Training & Deadline mode の場合、ブロック終了時に adaptive deadline を更新する。</summary>
         private IEnumerator RunBlock(PhaseType phase, int trials, int seed,
             List<float> correctRTs, List<float> leftRTs, List<float> rightRTs)
         {
             StimColor[] colors = TrialListGenerator.GenerateBalancedColors(trials, seed);
+            int blockCorrectBeforeDeadline = 0;
+            int blockNonTimeout = 0;
+            float deadlineLeftAtBlockStart = _deadlineLeftMs;
+            float deadlineRightAtBlockStart = _deadlineRightMs;
+
             for (int i = 1; i <= trials; i++)
             {
                 StimColor color = colors[i - 1];
                 UserAction correctHand = Counterbalance.CorrectHand(color, _mapping);
-                var (emsSide, emsDelayUs, _) = ComputeEms(phase, correctHand);
+                var emsPlan = ComputeEms(phase, correctHand);
 
                 float iti = UnityEngine.Random.Range(_config.ItiMinSec, _config.ItiMaxSec);
                 yield return new WaitForSeconds(iti);
 
                 TrialRecord rec = null;
                 yield return StartCoroutine(trialEngine.RunTrial(
-                    phase, i, color, correctHand, emsSide, emsDelayUs, _condition, _sessionDate,
+                    phase, i, color, correctHand, emsPlan.emsSide, emsPlan.emsDelayUs, _condition, _sessionDate,
                     r => rec = r));
 
                 rec.SubjectId = subjectId;
-                rec.EmsToTouchMs = emsSide == UserAction.Left ? _e2tL
-                    : (emsSide == UserAction.Right ? _e2tR : 0f);
+                rec.EmsToTouchMs = emsPlan.emsSide == UserAction.Left ? _e2tL
+                    : (emsPlan.emsSide == UserAction.Right ? _e2tR : 0f);
                 rec.ExclusionFlag = RtStatistics.Classify(
                     rec.ReactionTimeMs, _config.RtAnticipationMs, _config.RtLapseMaxMs, 0f);
+
+                // Intervention extension
+                rec.InterventionMode = _config.InterventionMode;
+                rec.EmsScheduled = emsPlan.emsSide != UserAction.None;
+                rec.EmsCanceled = rec.EmsScheduled && !rec.EmsFired;
+                rec.DeadlineMs = emsPlan.deadlineMs;          // -1 if Fastest or no-EMS
+                bool isTimeout = rec.ExclusionFlag == ExclusionFlag.Timeout;
+                rec.ResponseBeforeDeadline = !isTimeout
+                    && rec.DeadlineMs > 0f
+                    && rec.ReactionTimeMs > 0f
+                    && rec.ReactionTimeMs < rec.DeadlineMs;
+                rec.TouchAfterEmsMs = (rec.EmsFired && rec.ReactionTimeMs > 0f)
+                    ? (rec.ReactionTimeMs - rec.EmsFireTimingMs)
+                    : -1f;
+                rec.Outcome = TrialOutcomeClassifier.Classify(isTimeout, rec.IsCorrect, rec.EmsFired);
+
                 dataLogger.AppendTrial(rec);
 
-                // Baseline/Post 集計は anticipation(<150ms) / lapse(>1000ms) を除外。
-                // anticipatory な正答が Q_n / mean-k*SD を引き下げて EMS 発火を早めるのを防ぐ。
+                // Baseline/Post 集計は anticipation(<150ms) / lapse(>1000ms) / timeout を除外。
                 if (rec.IsCorrect && rec.ReactionTimeMs > 0f && rec.ExclusionFlag == ExclusionFlag.Normal)
                 {
                     correctRTs?.Add(rec.ReactionTimeMs);
                     if (correctHand == UserAction.Left) leftRTs?.Add(rec.ReactionTimeMs);
                     else rightRTs?.Add(rec.ReactionTimeMs);
                 }
+
+                // Adaptive deadline 用カウンタ（Training & Deadline mode のみ意味を持つ）
+                if (!isTimeout) blockNonTimeout++;
+                if (rec.Outcome == TrialOutcome.CorrectBeforeDeadline) blockCorrectBeforeDeadline++;
 
                 if (trialEngine.IsAborted)
                 {
@@ -289,24 +352,95 @@ namespace ReactionTest.Experiment
                 }
             }
             dataLogger.FlushBuffer();
+
+            // Block 終了: adaptive deadline 更新（Deadline mode かつ Training かつ EMS条件のみ）
+            bool isTraining = phase == PhaseType.Training1 || phase == PhaseType.Training2;
+            if (_config.InterventionMode == InterventionMode.Deadline
+                && isTraining
+                && EMSPolicy.ShouldFire(_condition))
+            {
+                AdaptDeadlineAfterBlock(phase, blockCorrectBeforeDeadline, blockNonTimeout,
+                    deadlineLeftAtBlockStart, deadlineRightAtBlockStart);
+            }
         }
 
-        /// <summary>Training かつ EMS条件のときのみ発火。emsSide=correctHand, delay=Baseline-offset-EMS_to_Touch。</summary>
-        private (UserAction emsSide, int emsDelayUs, float fireMs) ComputeEms(PhaseType phase, UserAction correctHand)
+        /// <summary>
+        /// 介入方式に応じて EMS 予定 (emsSide, emsDelayUs, fireMs[=DeadlineMs]) を決定。
+        /// Training かつ EMS 条件のときのみ発火対象。
+        ///  - Fastest: fireMs = baseline − offset − emsToTouch（先行発火）
+        ///  - Deadline: fireMs = leftDeadlineMs / rightDeadlineMs（deadline 時刻、emsToTouch 補正なし）
+        /// 戻り値 deadlineMs は CSV 記録専用（Fastest 時は -1）。
+        /// </summary>
+        private (UserAction emsSide, int emsDelayUs, float fireMs, float deadlineMs) ComputeEms(
+            PhaseType phase, UserAction correctHand)
         {
             bool isTraining = phase == PhaseType.Training1 || phase == PhaseType.Training2;
             if (!(isTraining && EMSPolicy.ShouldFire(_condition)))
-                return (UserAction.None, 0, 0f);
+                return (UserAction.None, 0, 0f, -1f);
 
-            float baseline = correctHand == UserAction.Left ? _baselineL : _baselineR;
-            float e2t = correctHand == UserAction.Left ? _e2tL : _e2tR;
-            float fireMs = EMSPolicy.ComputeFireTimingMs(baseline, _config.EmsOffsetMs, e2t);
+            float fireMs;
+            float deadlineMs;
+            if (_config.InterventionMode == InterventionMode.Deadline)
+            {
+                deadlineMs = correctHand == UserAction.Left ? _deadlineLeftMs : _deadlineRightMs;
+                fireMs = deadlineMs;
+            }
+            else
+            {
+                // Fastest mode: 既存ロジックを維持
+                float baseline = correctHand == UserAction.Left ? _baselineL : _baselineR;
+                float e2t = correctHand == UserAction.Left ? _e2tL : _e2tR;
+                fireMs = EMSPolicy.ComputeFireTimingMs(baseline, _config.EmsOffsetMs, e2t);
+                deadlineMs = -1f;
+            }
             if (fireMs < 0f)
             {
                 Debug.LogWarning($"Fire timing < 0 ({fireMs:F1}ms) → clamp 0.");
                 fireMs = 0f;
             }
-            return (correctHand, Mathf.RoundToInt(fireMs * 1000f), fireMs);
+            return (correctHand, Mathf.RoundToInt(fireMs * 1000f), fireMs, deadlineMs);
+        }
+
+        /// <summary>ブロック終了時に成功率を見て deadline を更新（adaptive）。
+        /// 純粋ロジックは [[DeadlineAdapter]] に分離し、ここではセッション状態への反映＋ログ記録のみ。
+        /// AdaptiveDeadlinePerSide はフックとして残置（現状は左右へ同 delta）。
+        /// </summary>
+        private void AdaptDeadlineAfterBlock(PhaseType phase, int correctBefore, int totalNonTimeout,
+            float deadlineLeftBefore, float deadlineRightBefore)
+        {
+            float rate = totalNonTimeout > 0 ? correctBefore / (float)totalNonTimeout : 0f;
+            _lastBlockSuccessRate = rate;
+            _lastBlockPhase = phase;
+
+            var dec = DeadlineAdapter.Adapt(
+                _deadlineLeftMs, correctBefore, totalNonTimeout,
+                _config.TargetSuccessRateUpper, _config.TargetSuccessRateLower,
+                _config.DeadlineStepMs, _config.MinDeadlineMs, _config.MaxDeadlineMs,
+                _config.UseAdaptiveDeadline);
+            float newLeft = dec.NewDeadlineMs;
+            // 同 delta を右にも適用（左右別カウンタは将来拡張）
+            float delta = newLeft - _deadlineLeftMs;
+            float newRight = Mathf.Clamp(_deadlineRightMs + delta, _config.MinDeadlineMs, _config.MaxDeadlineMs);
+            _deadlineLeftMs = newLeft;
+            _deadlineRightMs = newRight;
+
+            var ev = new DeadlineAdaptationEvent
+            {
+                Phase = phase,
+                BlockTrials = totalNonTimeout,
+                CountCorrectBeforeDeadline = correctBefore,
+                CountTotalNonTimeout = totalNonTimeout,
+                SuccessRate = rate,
+                DeadlineLeftMsBefore = deadlineLeftBefore,
+                DeadlineRightMsBefore = deadlineRightBefore,
+                DeadlineLeftMsAfter = _deadlineLeftMs,
+                DeadlineRightMsAfter = _deadlineRightMs,
+                Decision = dec.Action,
+                Timestamp = DateTime.UtcNow.ToString("o")
+            };
+            dataLogger.AppendDeadlineAdaptation(ev);
+            Debug.Log($"[Adaptive] {phase}: rate={rate:P0} ({correctBefore}/{totalNonTimeout}), decision={dec.Action}, " +
+                      $"deadline L={_deadlineLeftMs:F0}ms R={_deadlineRightMs:F0}ms");
         }
 
         private IEnumerator RunEMSLatency()
@@ -395,7 +529,10 @@ namespace ReactionTest.Experiment
                     ? _config.BaselineSdMultiplier : _config.BaselinePercentileN,
                 BaselineLeft = _baselineL, BaselineRight = _baselineR,
                 EmsToTouchLeft = _e2tL, EmsToTouchRight = _e2tR,
-                MedianPre = medPre, MedianPost1 = medPost1, MedianPost2 = medPost2, Gain = gain
+                MedianPre = medPre, MedianPost1 = medPost1, MedianPost2 = medPost2, Gain = gain,
+                InterventionMode = _config.InterventionMode.ToString(),
+                FinalDeadlineLeftMs = _deadlineLeftMs,
+                FinalDeadlineRightMs = _deadlineRightMs
             };
             File.WriteAllText(Path.Combine(_sessionPath, "summary.json"), JsonUtility.ToJson(summary, true));
             Debug.Log($"Summary: medianPre={medPre:F1}, post1={medPost1:F1}, post2={medPost2:F1}, gain={gain:F1}ms");

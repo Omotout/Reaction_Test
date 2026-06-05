@@ -24,7 +24,26 @@ namespace ReactionTest.Experiment
         public float BaselinePercentileN = 10f;   // Percentile時: 下位 n%（既定 10 = Q10）
         public float BaselineSdMultiplier = 1.0f; // Sd時: mean − k × SD（既定 k=1.0）
 
-        // EMSタイミング
+        // EMS 介入方式（Fastest=既存ロジック / Deadline=deadline 時刻に発火）
+        public InterventionMode InterventionMode = InterventionMode.Fastest;
+
+        // Deadline mode: 左右別 deadline (ms, LED 点灯起点)
+        public float LeftDeadlineMs = 250f;
+        public float RightDeadlineMs = 250f;
+
+        // Deadline mode: 適応的 deadline 更新
+        public bool UseAdaptiveDeadline = false;
+        public float TargetSuccessRateUpper = 0.70f;   // 超えれば deadline を縮める
+        public float TargetSuccessRateLower = 0.50f;   // 下回れば deadline を伸ばす
+        public float DeadlineStepMs = 10f;
+        public float MinDeadlineMs = 100f;
+        public float MaxDeadlineMs = 800f;
+        public bool AdaptiveDeadlinePerSide = false;   // false=左右共通の平均で更新
+
+        // Deadline mode: 誤反応後も deadline で EMS を発火するか（firmware 未対応のため警告のみ）
+        public bool TriggerEmsAfterError = false;
+
+        // EMSタイミング（Fastest mode のみ使用）
         public float EmsOffsetMs = 0f;   // 0=FastestBaseline, >0=agency_EMS
 
         // ITI / 前置時間（秒）

@@ -24,7 +24,8 @@ namespace ReactionTest.Experiment
 
         private const string CsvHeader =
             "SubjectID,Condition,SessionDate,Phase,TrialNumber,StimColor,CorrectHand,ResponseSide,IsCorrect," +
-            "ReactionTime_ms,Peak,ExclusionFlag,EmsFired,EmsSide,EmsFireTiming_ms,EmsToTouch_ms,Timestamp";
+            "ReactionTime_ms,Peak,ExclusionFlag,EmsFired,EmsSide,EmsFireTiming_ms,EmsToTouch_ms,Timestamp," +
+            "InterventionMode,Deadline_ms,ResponseBeforeDeadline,EmsScheduled,EmsCanceled,TouchAfterEms_ms,Outcome";
 
         public void InitializeWithPath(SessionMeta session, string outputDir)
         {
@@ -108,7 +109,14 @@ namespace ReactionTest.Experiment
                 CsvEscape(r.EmsSide.ToString()),
                 r.EmsFireTimingMs.ToString("F3", inv),
                 r.EmsToTouchMs.ToString("F3", inv),
-                CsvEscape(r.Timestamp));
+                CsvEscape(r.Timestamp),
+                CsvEscape(r.InterventionMode.ToString()),
+                r.DeadlineMs.ToString("F3", inv),
+                r.ResponseBeforeDeadline ? "1" : "0",
+                r.EmsScheduled ? "1" : "0",
+                r.EmsCanceled ? "1" : "0",
+                r.TouchAfterEmsMs.ToString("F3", inv),
+                CsvEscape(r.Outcome.ToString()));
         }
 
         /// <summary>
@@ -121,6 +129,15 @@ namespace ReactionTest.Experiment
             bool needsQuoting = value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0;
             if (!needsQuoting) return value;
             return "\"" + value.Replace("\"", "\"\"") + "\"";
+        }
+
+        /// <summary>Deadline mode の block-by-block 適応イベントを deadline_adaptations.jsonl に追記。
+        /// JSON Lines 形式: 1行=1ブロック分の適応イベント。</summary>
+        public void AppendDeadlineAdaptation(DeadlineAdaptationEvent ev)
+        {
+            if (_outputDir == null) return;
+            string path = Path.Combine(_outputDir, "deadline_adaptations.jsonl");
+            File.AppendAllText(path, JsonUtility.ToJson(ev) + Environment.NewLine, Encoding.UTF8);
         }
 
         private void OnApplicationQuit() => FlushBuffer();
