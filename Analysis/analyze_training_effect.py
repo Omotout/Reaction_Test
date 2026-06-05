@@ -61,11 +61,14 @@ def load_all_subjects(data_dir: Path) -> pd.DataFrame:
     return pd.concat(all_data, ignore_index=True, sort=False)
 
 
-def preprocess(df: pd.DataFrame) -> pd.DataFrame:
+def preprocess(df: pd.DataFrame, intervention_mode_filter: Optional[str] = None) -> pd.DataFrame:
     """解析対象フェーズ(Pre/Post1/Post2)に絞る最小限の前処理。
 
     ExclusionFlag による絞り込みは RT/accuracy で要件が異なるため、ここでは行わず
     compute_subject_summaries で個別に行う（accuracy=全試行、RT=Normal のみ）。
+
+    InterventionMode 列が無い古い CSV では仮想的に "Fastest" を割り当てる（旧データ互換）。
+    intervention_mode_filter を指定するとそのモードに絞り込む（"Fastest" or "Deadline"）。
     """
     # 旧スキーマ検出: Condition 列が無いログは旧 Agency 枠組み (Group=AgencyEMS/Voluntary) の可能性が高い。
     # 黙って空データを返すと「セッション数 0」で気付きにくいので明示エラーで止める。
@@ -86,6 +89,17 @@ def preprocess(df: pd.DataFrame) -> pd.DataFrame:
     # Condition が整数で保存されているレガシーデータへの対応（JsonUtility がenumを int 化するケース）
     if df["Condition"].dtype.kind in ("i", "f"):
         df["Condition"] = df["Condition"].map({0: "EMS", 1: "Voluntary"}).fillna(df["Condition"].astype(str))
+
+    # InterventionMode 列の整備（無ければ全行 Fastest 扱い、int も string にマップ）
+    if "InterventionMode" not in df.columns:
+        df["InterventionMode"] = "Fastest"
+    elif df["InterventionMode"].dtype.kind in ("i", "f"):
+        df["InterventionMode"] = (df["InterventionMode"]
+                                  .map({0: "Fastest", 1: "Deadline"})
+                                  .fillna(df["InterventionMode"].astype(str)))
+
+    if intervention_mode_filter is not None:
+        df = df[df["InterventionMode"] == intervention_mode_filter].copy()
 
     return df
 
@@ -114,15 +128,17 @@ def iqr_filtered_mean(rts: np.ndarray, k: float = 1.5) -> Optional[float]:
 # =====================================================================
 
 def compute_subject_summaries(df: pd.DataFrame, min_rt: float, max_rt: float) -> pd.DataFrame:
-    """被験者 × 条件 × フェーズごとに RT 平均と Accuracy を算出 (long-form)。
+    """被験者 × 介入モード × 条件 × フェーズごとに RT 平均と Accuracy を算出 (long-form)。
 
     Accuracy は **全試行**（タイムアウトのみ除外）の正答率。
     RT は **ExclusionFlag=Normal の正答試行** に min_rt/max_rt の二重ガードを掛けた上で IQR フィルタ平均。
-    速度−正答率トレードオフを正しく見るため、accuracy の分母から anticipation/lapse を消さない。
+    InterventionMode を groupby に含めるので、同じ被験者の Fastest セッションと Deadline セッションが
+    同じセルに混入しない。
     """
     has_excl = "ExclusionFlag" in df.columns
     rows = []
-    for (subj, cond, phase), g in df.groupby(["SubjectID", "Condition", "Phase"]):
+    for (subj, mode, cond, phase), g in df.groupby(
+            ["SubjectID", "InterventionMode", "Condition", "Phase"]):
         # ── Accuracy: タイムアウト(RT<=0)のみ除外、anticipation/lapse は含める ──
         acc_pool = g[g["ReactionTime_ms"] > 0]
         n_total = len(acc_pool)
@@ -138,7 +154,7 @@ def compute_subject_summaries(df: pd.DataFrame, min_rt: float, max_rt: float) ->
         rt_mean = iqr_filtered_mean(rt_pool["ReactionTime_ms"].to_numpy())
 
         rows.append({
-            "SubjectID": subj, "Condition": cond, "Phase": phase,
+            "SubjectID": subj, "InterventionMode": mode, "Condition": cond, "Phase": phase,
             "n_total_for_acc": n_total, "n_correct_for_acc": n_correct,
             "n_rt_used": len(rt_pool),
             "p_correct": p_correct,
@@ -148,21 +164,20 @@ def compute_subject_summaries(df: pd.DataFrame, min_rt: float, max_rt: float) ->
 
 
 def compute_deltas(summary: pd.DataFrame) -> pd.DataFrame:
-    """ΔRT = mean(Post1, Post2) − Pre を被験者×条件ごとに算出。
+    """ΔRT = mean(Post1, Post2) − Pre を被験者×介入モード×条件ごとに算出。
 
     Post̄ は Post1 と Post2 の平均（片方しか無ければそれを使う）。両方とも欠損なら
     Δ は欠損で残す。Pre が欠損なら Δ は計算しない。
     """
     metrics = {"rt_ms": "rt_mean_ms", "acc": "p_correct"}
     pivot = summary.pivot_table(
-        index=["SubjectID", "Condition"], columns="Phase",
+        index=["SubjectID", "InterventionMode", "Condition"], columns="Phase",
         values=list(metrics.values()),
     )
-    # pivot のカラムは (metric, phase) の MultiIndex
 
     out_rows = []
-    for (subj, cond), row in pivot.iterrows():
-        rec = {"SubjectID": subj, "Condition": cond}
+    for (subj, mode, cond), row in pivot.iterrows():
+        rec = {"SubjectID": subj, "InterventionMode": mode, "Condition": cond}
         for short, col in metrics.items():
             pre = row.get((col, "Pre"), np.nan)
             p1 = row.get((col, "Post1"), np.nan)
@@ -404,26 +419,14 @@ def plot_within_subject_pair(deltas: pd.DataFrame, out_dir: Path) -> list:
 # Main
 # =====================================================================
 
-def main():
-    parser = argparse.ArgumentParser(description="FastestBaseline RT training effect analysis")
-    parser.add_argument("--data_dir", required=True, help="ExperimentData root")
-    parser.add_argument("--outdir", required=True, help="Output directory")
-    parser.add_argument("--min_rt", type=float, default=100)
-    parser.add_argument("--max_rt", type=float, default=1000)
-    args = parser.parse_args()
-
-    data_dir = Path(args.data_dir)
-    out_dir = Path(args.outdir); out_dir.mkdir(parents=True, exist_ok=True)
-
-    print("Loading subject data...")
-    df = load_all_subjects(data_dir)
-    print(f"Loaded {len(df)} trials, {df['SubjectID'].nunique()} subjects")
-
-    df = preprocess(df)
-    print(f"After preprocessing: {len(df)} trials (analysis phases only)")
+def run_analysis(df: pd.DataFrame, out_dir: Path, min_rt: float, max_rt: float):
+    """1つの InterventionMode 分のデータに対して全パイプラインを実行する。
+    呼び出し側で df を1モードに絞ってから渡すこと（複数モードの混在は groupby で防げるが
+    ANOVA や paired test の自然な解釈には単一モードが望ましい）。"""
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n[1/4] Computing per-subject summaries (RT, Accuracy)...")
-    summary = compute_subject_summaries(df, args.min_rt, args.max_rt)
+    summary = compute_subject_summaries(df, min_rt, max_rt)
     summary.to_csv(out_dir / "subject_phase_summary.csv", index=False)
 
     deltas = compute_deltas(summary)
@@ -434,7 +437,7 @@ def main():
     # ----------------------------------------------------------------
     print("\n[2/4] 2-way RM ANOVA (Condition × Phase) on RT...")
     aov_rt = run_rm_anova(summary, dv="rt_mean_ms")
-    aov_acc = run_rm_anova(summary, dv="p_correct")
+    aov_acc = run_rm_anova(summary, dv="p_correct")  # accuracy も同様
 
     def _print_aov(label, aov):
         if "table" not in aov:
@@ -519,7 +522,8 @@ def main():
         "n_subjects": int(df["SubjectID"].nunique()),
         "n_per_condition": df.groupby("Condition")["SubjectID"].nunique().to_dict(),
         "n_trials_total": int(len(df)),
-        "rt_bounds_ms": [args.min_rt, args.max_rt],
+        "intervention_modes": df["InterventionMode"].unique().tolist(),
+        "rt_bounds_ms": [min_rt, max_rt],
         "primary_rm_anova": {
             "rt_mean_ms": aov_rt,
             "p_correct": aov_acc,
@@ -531,6 +535,46 @@ def main():
         json.dumps(report, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8")
     print(f"\nDone. Results: {out_dir}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="FastestBaseline RT training effect analysis")
+    parser.add_argument("--data_dir", required=True, help="ExperimentData root")
+    parser.add_argument("--outdir", required=True, help="Output directory")
+    parser.add_argument("--min_rt", type=float, default=100)
+    parser.add_argument("--max_rt", type=float, default=1000)
+    parser.add_argument("--intervention_mode",
+                        choices=["Fastest", "Deadline"], default=None,
+                        help="Filter to a single InterventionMode. "
+                             "Default: if data has multiple modes, run each in its own subdir.")
+    args = parser.parse_args()
+
+    data_dir = Path(args.data_dir)
+    out_dir = Path(args.outdir); out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("Loading subject data...")
+    df = load_all_subjects(data_dir)
+    print(f"Loaded {len(df)} trials, {df['SubjectID'].nunique()} subjects")
+
+    df = preprocess(df, intervention_mode_filter=args.intervention_mode)
+    if args.intervention_mode:
+        print(f"Filtered to InterventionMode={args.intervention_mode}: {len(df)} trials")
+    print(f"After preprocessing: {len(df)} trials (analysis phases only)")
+    print(f"InterventionMode counts: {df['InterventionMode'].value_counts().to_dict()}")
+
+    # Fastest と Deadline は別の介入なので、両方含まれているなら出力を分ける。
+    # Filter 指定時は単一モードに絞り込み済みなので分割しない。
+    modes_in_data = df["InterventionMode"].unique().tolist()
+    if len(modes_in_data) > 1 and args.intervention_mode is None:
+        print(f"\n>>> Multiple InterventionModes present: {modes_in_data}. "
+              f"Running separately under {out_dir}/intervention_<Mode>/")
+        for mode in modes_in_data:
+            sub_df = df[df["InterventionMode"] == mode].copy()
+            sub_out = out_dir / f"intervention_{mode}"
+            print(f"\n===== InterventionMode={mode} ({len(sub_df)} trials) =====")
+            run_analysis(sub_df, sub_out, args.min_rt, args.max_rt)
+    else:
+        run_analysis(df, out_dir, args.min_rt, args.max_rt)
 
 
 if __name__ == "__main__":
