@@ -63,6 +63,30 @@ namespace ReactionTest.Experiment.Tests
             Assert.AreEqual(800f, d.NewDeadlineMs, 1e-4f);
             Assert.AreEqual("loosen", d.Action);
         }
+
+        [Test]
+        public void DeriveFromMedian_SubtractsOffsetWithinBounds()
+        {
+            // 通常: 240ms median, offset 10ms → 230ms
+            Assert.AreEqual(230f, DeadlineAdapter.DeriveFromMedian(240f, 10f, Min, Max), 1e-4f);
+        }
+
+        [Test]
+        public void DeriveFromMedian_ClampsToMinAndMax()
+        {
+            // 下限: median=105 - offset=20 = 85, clamped to Min=100
+            Assert.AreEqual(100f, DeadlineAdapter.DeriveFromMedian(105f, 20f, Min, Max), 1e-4f);
+            // 上限: median=1000 - offset=10 = 990, clamped to Max=800
+            Assert.AreEqual(800f, DeadlineAdapter.DeriveFromMedian(1000f, 10f, Min, Max), 1e-4f);
+        }
+
+        [Test]
+        public void DeriveFromMedian_ReturnsNegativeOnEmptyMedian()
+        {
+            // median<=0 = Pre 正答ゼロ → 呼び出し側で既存値を維持させる sentinel
+            Assert.AreEqual(-1f, DeadlineAdapter.DeriveFromMedian(0f, 10f, Min, Max), 1e-4f);
+            Assert.AreEqual(-1f, DeadlineAdapter.DeriveFromMedian(-5f, 10f, Min, Max), 1e-4f);
+        }
     }
 
     public class TrialOutcomeClassifierTests

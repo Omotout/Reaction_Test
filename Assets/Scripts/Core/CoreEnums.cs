@@ -65,6 +65,18 @@ namespace ReactionTest.Experiment
         Deadline
     }
 
+    /// <summary>
+    /// Deadline mode の初期値設定方法。
+    /// Manual: experiment_config.json の LeftDeadlineMs / RightDeadlineMs をそのまま使う。
+    /// PreMedianOffset: Pre フェーズの正答 RT の median (左右別) から DeadlineOffsetFromMedianMs を引く。
+    ///                  例) median=240ms, offset=10ms → deadline=230ms（中央値の 10ms 手前で押させる設計）。
+    /// </summary>
+    public enum DeadlineInitMode
+    {
+        Manual,
+        PreMedianOffset
+    }
+
     /// <summary>1試行の結果分類（解析・モニタリング用）。</summary>
     public enum TrialOutcome
     {

@@ -141,6 +141,27 @@ namespace ReactionTest.Experiment
                                  $"Baseline may be unreliable; EMS fire timing for a side with 0 correct trials would clamp to 0.");
             }
 
+            // ── Deadline mode: PreMedianOffset で初期 deadline を再計算 ──
+            // 「median の N ms 手前に押させる」設計。Manual モードでは Inspector の初期値をそのまま使う。
+            if (_config.InterventionMode == InterventionMode.Deadline
+                && _config.DeadlineInitMode == DeadlineInitMode.PreMedianOffset)
+            {
+                float medL = RtStatistics.Median(preL);
+                float medR = RtStatistics.Median(preR);
+                float dL = DeadlineAdapter.DeriveFromMedian(medL, _config.DeadlineOffsetFromMedianMs,
+                    _config.MinDeadlineMs, _config.MaxDeadlineMs);
+                float dR = DeadlineAdapter.DeriveFromMedian(medR, _config.DeadlineOffsetFromMedianMs,
+                    _config.MinDeadlineMs, _config.MaxDeadlineMs);
+                if (dL >= 0f) _deadlineLeftMs = dL;
+                else Debug.LogWarning("PreMedianOffset: left median is 0 (no correct Pre trials). " +
+                                      $"Keeping initial LeftDeadlineMs={_deadlineLeftMs:F0}ms.");
+                if (dR >= 0f) _deadlineRightMs = dR;
+                else Debug.LogWarning("PreMedianOffset: right median is 0 (no correct Pre trials). " +
+                                      $"Keeping initial RightDeadlineMs={_deadlineRightMs:F0}ms.");
+                Debug.Log($"Deadline init (PreMedianOffset, offset={_config.DeadlineOffsetFromMedianMs}ms): " +
+                          $"medL={medL:F1} medR={medR:F1} → deadline L={_deadlineLeftMs:F1}ms R={_deadlineRightMs:F1}ms");
+            }
+
             // ── EMSLatency（EMS条件のみ）──
             _e2tL = 0f; _e2tR = 0f;
             if (_condition == ExperimentCondition.EMS)

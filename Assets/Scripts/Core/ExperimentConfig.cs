@@ -28,8 +28,14 @@ namespace ReactionTest.Experiment
         public InterventionMode InterventionMode = InterventionMode.Fastest;
 
         // Deadline mode: 左右別 deadline (ms, LED 点灯起点)
+        // DeadlineInitMode=PreMedianOffset のときは Pre 終了後に Pre median から再計算される
         public float LeftDeadlineMs = 250f;
         public float RightDeadlineMs = 250f;
+
+        // Deadline mode: 初期 deadline の決定方法
+        public DeadlineInitMode DeadlineInitMode = DeadlineInitMode.Manual;
+        // PreMedianOffset 時: deadline = preMedian(side) − DeadlineOffsetFromMedianMs
+        public float DeadlineOffsetFromMedianMs = 10f;
 
         // Deadline mode: 適応的 deadline 更新
         public bool UseAdaptiveDeadline = false;

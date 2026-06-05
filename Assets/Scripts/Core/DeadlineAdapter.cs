@@ -37,6 +37,17 @@ namespace ReactionTest.Experiment
             float newVal = Mathf.Clamp(currentMs + delta, minMs, maxMs);
             return new Decision { NewDeadlineMs = newVal, Action = action };
         }
+
+        /// <summary>
+        /// Pre median から deadline を導出。
+        /// deadline = clamp(medianMs − offsetMs, minMs, maxMs)。
+        /// medianMs ≤ 0 (= Pre 正答ゼロ) のときは -1 を返し、呼び出し側で既存値を維持させる。
+        /// </summary>
+        public static float DeriveFromMedian(float medianMs, float offsetMs, float minMs, float maxMs)
+        {
+            if (medianMs <= 0f) return -1f;
+            return Mathf.Clamp(medianMs - offsetMs, minMs, maxMs);
+        }
     }
 
     /// <summary>
