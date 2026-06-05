@@ -30,11 +30,14 @@ namespace ReactionTest.Experiment.Tests
         }
 
         [Test]
-        public void Classify_AnticipationLapseNormal()
+        public void Classify_AnticipationLapseNormalTimeout()
         {
             Assert.AreEqual(ExclusionFlag.Anticipation, RtStatistics.Classify(120f, 150f, 1000f, 0f));
             Assert.AreEqual(ExclusionFlag.Lapse,        RtStatistics.Classify(1200f, 150f, 1000f, 0f));
             Assert.AreEqual(ExclusionFlag.Normal,       RtStatistics.Classify(300f, 150f, 1000f, 0f));
+            // タイムアウト（rt<=0）は Anticipation ではなく Timeout として分離
+            Assert.AreEqual(ExclusionFlag.Timeout,      RtStatistics.Classify(-1f, 150f, 1000f, 0f));
+            Assert.AreEqual(ExclusionFlag.Timeout,      RtStatistics.Classify(0f, 150f, 1000f, 0f));
         }
 
         [Test]

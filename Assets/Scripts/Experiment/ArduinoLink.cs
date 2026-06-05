@@ -32,6 +32,7 @@ namespace ReactionTest.Experiment
         // メインスレッドで購読する受信イベント（Update から発火）
         public event Action<TrialResult> OnTrialResult;
         public event Action<EmsLatencyResult> OnEmsLatencyResult;
+        public event Action<string> OnErrorLine;
         public event Action<string> OnOtherLine;
 
         /// <summary>ポート名/ボーレートを上書きする。必ず Start() より前に呼ぶこと（開いた後は無効）。</summary>
@@ -90,6 +91,11 @@ namespace ReactionTest.Experiment
             else if (ArduinoProtocol.TryParseEmsLatency(line, out var lat))
             {
                 OnEmsLatencyResult?.Invoke(lat);
+            }
+            else if (ArduinoProtocol.IsErrorLine(line))
+            {
+                Debug.LogError($"ArduinoLink RX error line: {line}");
+                OnErrorLine?.Invoke(line);
             }
             else
             {

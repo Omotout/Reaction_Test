@@ -11,6 +11,9 @@ namespace ReactionTest.Experiment
         public SRMapping Mapping;
         public string SessionDate;     // yyyy-MM-dd
         public string DatetimeStart;   // ISO 8601
+        public string DatetimeEnd;     // ISO 8601 (Finish 時に上書き)
+        public bool Aborted;           // true=中断 / false=完走
+        public string AbortReason;     // 中断理由（空=完走）
         public string AppVersion;
 
         public int SeedPre;

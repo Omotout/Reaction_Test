@@ -68,11 +68,13 @@ namespace ReactionTest.Experiment
 
         /// <summary>
         /// 除外分類。生データは保持し、分類のみ返す。
+        /// rtMs ≤ 0 は Timeout（無反応）として Anticipation と区別する。
         /// upperSdBound>0 のとき rt>upperSdBound も Lapse とみなす（個人内+3SD用。
         /// Unity記録時は 0 を渡して anticipation/&gt;lapseMax のみ判定し、+3SDはPython側で再計算）。
         /// </summary>
         public static ExclusionFlag Classify(float rtMs, float anticipationMs, float lapseMaxMs, float upperSdBound)
         {
+            if (rtMs <= 0f) return ExclusionFlag.Timeout;
             if (rtMs < anticipationMs) return ExclusionFlag.Anticipation;
             if (rtMs > lapseMaxMs) return ExclusionFlag.Lapse;
             if (upperSdBound > 0f && rtMs > upperSdBound) return ExclusionFlag.Lapse;

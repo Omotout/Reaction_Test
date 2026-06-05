@@ -41,7 +41,8 @@ namespace ReactionTest.Experiment
     {
         Normal,
         Anticipation,
-        Lapse
+        Lapse,
+        Timeout
     }
 
     /// <summary>FastestBaseline 算出法。Percentile=下位n%、Sd=mean − k×SD。</summary>

@@ -29,6 +29,9 @@ namespace ReactionTest.Experiment
         private TrialResult _lastTrialResult;
         private bool _hasLatResult;
         private EmsLatencyResult _lastLatResult;
+        private bool _waitingForArduinoResult;
+        private bool _hasArduinoError;
+        private string _lastArduinoError;
 
         // 送信ごとに単調増加するシーケンスID。結果はこのIDと一致するものだけ採用し、
         // タイムアウト後に届く前試行の遅延結果（試行ずれの原因）を破棄する。
@@ -37,7 +40,10 @@ namespace ReactionTest.Experiment
         private int _expectedLatId;
 
         private bool _isAborted;
+        private string _abortReason = string.Empty;
         public bool IsAborted => _isAborted;
+        /// <summary>Abort 時の理由文字列。Esc 中断時は空文字（Orchestrator 側で文脈を補う）。</summary>
+        public string AbortReason => _abortReason;
 
         public void SetArduinoLink(ArduinoLink link) => arduinoLink = link;
         public void SetEMSController(EMSController c) => emsController = c;
@@ -48,6 +54,7 @@ namespace ReactionTest.Experiment
             {
                 arduinoLink.OnTrialResult += HandleTrialResult;
                 arduinoLink.OnEmsLatencyResult += HandleLatResult;
+                arduinoLink.OnErrorLine += HandleArduinoError;
             }
             HideFeedback();
         }
@@ -58,6 +65,7 @@ namespace ReactionTest.Experiment
             {
                 arduinoLink.OnTrialResult -= HandleTrialResult;
                 arduinoLink.OnEmsLatencyResult -= HandleLatResult;
+                arduinoLink.OnErrorLine -= HandleArduinoError;
             }
         }
 
@@ -83,6 +91,18 @@ namespace ReactionTest.Experiment
             _hasLatResult = true;
         }
 
+        private void HandleArduinoError(string line)
+        {
+            if (!_waitingForArduinoResult)
+            {
+                UnityEngine.Debug.LogWarning($"TrialEngine: Arduino error outside active trial: {line}");
+                return;
+            }
+
+            _lastArduinoError = line;
+            _hasArduinoError = true;
+        }
+
         public IEnumerator RunTrial(
             PhaseType phase, int trialIndex, StimColor color, UserAction correctHand,
             UserAction emsSide, int emsDelayUs, ExperimentCondition condition, string sessionDate,
@@ -92,6 +112,9 @@ namespace ReactionTest.Experiment
             int id = ++_seq;
             _expectedTrialId = id;
             _hasTrialResult = false;
+            _hasArduinoError = false;
+            _lastArduinoError = null;
+            _waitingForArduinoResult = true;
 
             if (arduinoLink != null)
                 arduinoLink.SendTrial(id, color, correctHand, emsSide, emsDelayUs);
@@ -103,6 +126,7 @@ namespace ReactionTest.Experiment
             while (!_hasTrialResult)
             {
                 if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Abort(); break; }
+                if (_hasArduinoError) { Abort($"Arduino error during TRIAL#{id}: {_lastArduinoError}"); break; }
                 if (Time.realtimeSinceStartup > deadline)
                 {
                     UnityEngine.Debug.LogWarning($"TrialEngine: TRIAL_RESULT timeout (trial {trialIndex}).");
@@ -110,6 +134,7 @@ namespace ReactionTest.Experiment
                 }
                 yield return null;
             }
+            _waitingForArduinoResult = false;
 
             TrialResult res = _hasTrialResult ? _lastTrialResult
                 : new TrialResult { TouchedSide = UserAction.None, RtMs = -1f, Peak = 0, EmsFired = false, TimedOut = true };
@@ -149,6 +174,9 @@ namespace ReactionTest.Experiment
             int id = ++_seq;
             _expectedLatId = id;
             _hasLatResult = false;
+            _hasArduinoError = false;
+            _lastArduinoError = null;
+            _waitingForArduinoResult = true;
 
             if (arduinoLink != null) arduinoLink.SendEmsLatency(id, side);
             else UnityEngine.Debug.Log($"[Sim] EMSLAT#{id} {side}");
@@ -158,6 +186,7 @@ namespace ReactionTest.Experiment
             while (!_hasLatResult)
             {
                 if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Abort(); break; }
+                if (_hasArduinoError) { Abort($"Arduino error during EMSLAT#{id}: {_lastArduinoError}"); break; }
                 if (Time.realtimeSinceStartup > deadline)
                 {
                     UnityEngine.Debug.LogWarning($"TrialEngine: EMSLAT_RESULT timeout (trial {trialIndex}).");
@@ -165,6 +194,7 @@ namespace ReactionTest.Experiment
                 }
                 yield return null;
             }
+            _waitingForArduinoResult = false;
 
             float latency = (_hasLatResult && !_lastLatResult.TimedOut) ? _lastLatResult.LatencyMs : -1f;
             if (showReactionTimeFeedback && latency > 0f)
@@ -172,12 +202,16 @@ namespace ReactionTest.Experiment
             onLatencyMs?.Invoke(latency);
         }
 
-        private void Abort()
+        private void Abort(string reason = "Escape")
         {
+            if (_isAborted) return;
             _isAborted = true;
+            // Esc 中断（"Escape"）は Orchestrator 側で phase/trial 情報を付け足すため空文字を残し、
+            // Arduino エラーなど reason が具体的に渡された場合のみそれを保持する。
+            _abortReason = reason == "Escape" ? string.Empty : reason;
             if (arduinoLink != null) arduinoLink.SendReset();
             if (emsController != null) emsController.EmergencyStop();
-            UnityEngine.Debug.LogError("TrialEngine: ABORT (Escape) — sent RESET to Arduino.");
+            UnityEngine.Debug.LogError($"TrialEngine: ABORT ({reason}) - sent RESET to Arduino.");
         }
 
         private IEnumerator ShowFeedback(string msg, Color color)

@@ -33,6 +33,7 @@ namespace ReactionTest.Experiment
         private string _sessionPath;
         private float _baselineL, _baselineR, _e2tL, _e2tR;
         private bool _aborted;
+        private string _abortReason = string.Empty;
 
         [Serializable]
         private class SummaryData
@@ -62,10 +63,21 @@ namespace ReactionTest.Experiment
 
             if (arduinoLink != null)
             {
-                arduinoLink.SendThreshold(UserAction.Left, _config.TouchThresholdLeft);
-                arduinoLink.SendThreshold(UserAction.Right, _config.TouchThresholdRight);
-                arduinoLink.SendEmsConfig(_config.EmsPulseWidthUs, _config.EmsPulseCount,
-                    _config.EmsBurstCount, _config.EmsPulseIntervalUs);
+                yield return SendSetupAndAwaitAcks();
+                if (_aborted)
+                {
+                    // SetupAck で session フォルダだけ作成済み・ロガー未初期化のため、
+                    // session_info を最低限残すために dataLogger を空 meta で初期化してから Finish。
+                    var failMeta = new SessionMeta
+                    {
+                        SubjectId = subjectId, Condition = _condition, SessionNumber = sessionNumber,
+                        Mapping = _mapping, SessionDate = _sessionDate,
+                        DatetimeStart = DateTime.UtcNow.ToString("o"), AppVersion = Application.version
+                    };
+                    dataLogger.InitializeWithPath(failMeta, _sessionPath);
+                    yield return Finish(true, _abortReason);
+                    yield break;
+                }
             }
 
             var meta = new SessionMeta
@@ -93,7 +105,7 @@ namespace ReactionTest.Experiment
             var preR = new List<float>();
             yield return ShowTransition("Pre", $"赤/緑のLEDが点きます。対応する指でできるだけ速くタッチ。\n{_config.PreTrials} 試行");
             yield return RunBlock(PhaseType.Pre, _config.PreTrials, meta.SeedPre, preRTs, preL, preR);
-            if (_aborted) { yield return Finish(true); yield break; }
+            if (_aborted) { yield return Finish(true, _abortReason); yield break; }
             _baselineL = RtStatistics.ComputeBaseline(preL, _config.BaselineMethod, _config.BaselinePercentileN, _config.BaselineSdMultiplier);
             _baselineR = RtStatistics.ComputeBaseline(preR, _config.BaselineMethod, _config.BaselinePercentileN, _config.BaselineSdMultiplier);
             string baselineDesc = _config.BaselineMethod == BaselineMethod.Sd
@@ -111,7 +123,7 @@ namespace ReactionTest.Experiment
             if (_condition == ExperimentCondition.EMS)
             {
                 yield return RunEMSLatency();
-                if (_aborted) { yield return Finish(true); yield break; }
+                if (_aborted) { yield return Finish(true, _abortReason); yield break; }
             }
 
             subjectDataManager.SaveCalibration(new CalibrationData
@@ -129,21 +141,21 @@ namespace ReactionTest.Experiment
 
             yield return ShowTransition("Training 1", BlockInstruction(_config.Training1Trials));
             yield return RunBlock(PhaseType.Training1, _config.Training1Trials, meta.SeedTraining1, null, null, null);
-            if (_aborted) { yield return Finish(true); yield break; }
+            if (_aborted) { yield return Finish(true, _abortReason); yield break; }
 
             yield return ShowTransition("Post 1", BlockInstruction(_config.Post1Trials));
             yield return RunBlock(PhaseType.Post1, _config.Post1Trials, meta.SeedPost1, post1, null, null);
-            if (_aborted) { yield return Finish(true); yield break; }
+            if (_aborted) { yield return Finish(true, _abortReason); yield break; }
 
             yield return ShowTransition("休憩", "少し休憩してください。\n準備ができたら続行します。");
 
             yield return ShowTransition("Training 2", BlockInstruction(_config.Training2Trials));
             yield return RunBlock(PhaseType.Training2, _config.Training2Trials, meta.SeedTraining2, null, null, null);
-            if (_aborted) { yield return Finish(true); yield break; }
+            if (_aborted) { yield return Finish(true, _abortReason); yield break; }
 
             yield return ShowTransition("Post 2", BlockInstruction(_config.Post2Trials));
             yield return RunBlock(PhaseType.Post2, _config.Post2Trials, meta.SeedPost2, post2, null, null);
-            if (_aborted) { yield return Finish(true); yield break; }
+            if (_aborted) { yield return Finish(true, _abortReason); yield break; }
 
             // ── median / gain ──
             float medPre = RtStatistics.Median(preRTs);
@@ -152,11 +164,74 @@ namespace ReactionTest.Experiment
             float gain = (medPost1 + medPost2) / 2f - medPre;
             WriteSummary(medPre, medPost1, medPost2, gain);
 
-            yield return Finish(false);
+            yield return Finish(false, string.Empty);
         }
 
         private string BlockInstruction(int trials)
             => $"赤/緑のLEDが点きます。対応する指でできるだけ速くタッチ。\n{trials} 試行";
+
+        /// <summary>
+        /// THR/EMSCFG を送って OK:THR / OK:EMSCFG をACKとして待つ。
+        /// ERR:THR / ERR:EMSCFG を受けたら abort（Arduino 側で値が拒否された＝古い設定で実験が走るのを防ぐ）。
+        /// シミュレーションモード（!IsConnected）では待たずに通過する。
+        /// </summary>
+        private IEnumerator SendSetupAndAwaitAcks()
+        {
+            int okCount = 0;
+            string errLine = null;
+            const int expectedOks = 3; // THR L, THR R, EMSCFG
+
+            void OnOk(string line)
+            {
+                if (line.StartsWith("OK:THR:") || line.StartsWith("OK:EMSCFG:")) okCount++;
+            }
+            void OnErr(string line)
+            {
+                if (line.StartsWith("ERR:THR") || line.StartsWith("ERR:EMSCFG"))
+                {
+                    if (errLine == null) errLine = line;
+                }
+            }
+
+            arduinoLink.OnOtherLine += OnOk;
+            arduinoLink.OnErrorLine += OnErr;
+            try
+            {
+                arduinoLink.SendThreshold(UserAction.Left, _config.TouchThresholdLeft);
+                arduinoLink.SendThreshold(UserAction.Right, _config.TouchThresholdRight);
+                arduinoLink.SendEmsConfig(_config.EmsPulseWidthUs, _config.EmsPulseCount,
+                    _config.EmsBurstCount, _config.EmsPulseIntervalUs);
+
+                if (!arduinoLink.IsConnected) yield break; // シミュレーション時はACKを待たない
+
+                const float timeoutSec = 2.0f;
+                float deadline = Time.realtimeSinceStartup + timeoutSec;
+                while (errLine == null && okCount < expectedOks && Time.realtimeSinceStartup < deadline)
+                    yield return null;
+
+                if (errLine != null)
+                {
+                    _aborted = true;
+                    _abortReason = $"Arduino setup rejected: {errLine}";
+                    Debug.LogError($"Setup handshake failed: {errLine}");
+                }
+                else if (okCount < expectedOks)
+                {
+                    _aborted = true;
+                    _abortReason = $"Arduino setup ACK timeout: {okCount}/{expectedOks} OKs in {timeoutSec}s";
+                    Debug.LogError(_abortReason);
+                }
+                else
+                {
+                    Debug.Log($"Setup handshake OK ({okCount}/{expectedOks}).");
+                }
+            }
+            finally
+            {
+                arduinoLink.OnOtherLine -= OnOk;
+                arduinoLink.OnErrorLine -= OnErr;
+            }
+        }
 
         private bool ValidateRefs()
         {
@@ -195,14 +270,23 @@ namespace ReactionTest.Experiment
                     rec.ReactionTimeMs, _config.RtAnticipationMs, _config.RtLapseMaxMs, 0f);
                 dataLogger.AppendTrial(rec);
 
-                if (rec.IsCorrect && rec.ReactionTimeMs > 0f)
+                // Baseline/Post 集計は anticipation(<150ms) / lapse(>1000ms) を除外。
+                // anticipatory な正答が Q_n / mean-k*SD を引き下げて EMS 発火を早めるのを防ぐ。
+                if (rec.IsCorrect && rec.ReactionTimeMs > 0f && rec.ExclusionFlag == ExclusionFlag.Normal)
                 {
                     correctRTs?.Add(rec.ReactionTimeMs);
                     if (correctHand == UserAction.Left) leftRTs?.Add(rec.ReactionTimeMs);
                     else rightRTs?.Add(rec.ReactionTimeMs);
                 }
 
-                if (trialEngine.IsAborted) { _aborted = true; yield break; }
+                if (trialEngine.IsAborted)
+                {
+                    _aborted = true;
+                    _abortReason = !string.IsNullOrEmpty(trialEngine.AbortReason)
+                        ? $"{trialEngine.AbortReason} (phase {phase}, trial {i})"
+                        : $"Operator abort (Esc) during {phase} trial {i}";
+                    yield break;
+                }
             }
             dataLogger.FlushBuffer();
         }
@@ -249,7 +333,14 @@ namespace ReactionTest.Experiment
                     float v = -1f;
                     yield return StartCoroutine(trialEngine.RunEMSLatencyTrial(side, i, x => v = x));
                     if (v > 0f) lat.Add(v);
-                    if (trialEngine.IsAborted) { _aborted = true; yield break; }
+                    if (trialEngine.IsAborted)
+                    {
+                        _aborted = true;
+                        _abortReason = !string.IsNullOrEmpty(trialEngine.AbortReason)
+                            ? $"{trialEngine.AbortReason} (EMSLatency {side} trial {i}, attempt {attempt})"
+                            : $"Operator abort (Esc) during EMSLatency {side} trial {i} (attempt {attempt})";
+                        yield break;
+                    }
                 }
 
                 if (lat.Count == 0)
@@ -278,6 +369,7 @@ namespace ReactionTest.Experiment
                 Debug.LogError($"EMS_to_Touch {side}: NO valid latency samples after 3 attempts. Aborting session " +
                                $"to avoid firing EMS off a 0ms latency. Check electrode contact / EMS intensity / touch threshold.");
                 _aborted = true;
+                _abortReason = $"EMS_to_Touch {side}: no valid latency samples after 3 attempts";
                 yield break;
             }
             Debug.LogWarning($"EMS_to_Touch {side}: stability not reached after 3 attempts. Using last valid median.");
@@ -309,15 +401,16 @@ namespace ReactionTest.Experiment
             Debug.Log($"Summary: medianPre={medPre:F1}, post1={medPost1:F1}, post2={medPost2:F1}, gain={gain:F1}ms");
         }
 
-        private IEnumerator Finish(bool aborted)
+        private IEnumerator Finish(bool aborted, string reason)
         {
             if (arduinoLink != null) arduinoLink.SendReset();
             dataLogger.FlushBuffer();
+            dataLogger.FinalizeSession(aborted, reason);
             if (aborted)
             {
                 if (emsController != null) emsController.EmergencyStop();
                 yield return ShowTransition("中断", "実験が中断されました。\n記録済みデータは保存されています。");
-                Debug.LogError($"Experiment aborted. Logs: {dataLogger.GetOutputDirectory()}");
+                Debug.LogError($"Experiment aborted: {reason}. Logs: {dataLogger.GetOutputDirectory()}");
             }
             else
             {

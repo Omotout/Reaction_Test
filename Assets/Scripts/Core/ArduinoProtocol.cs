@@ -42,6 +42,9 @@ namespace ReactionTest.Experiment
         public const string Reset  = "RESET";
         public const string Status = "STATUS";
 
+        public static bool IsErrorLine(string line)
+            => !string.IsNullOrWhiteSpace(line) && line.TrimStart().StartsWith("ERR:");
+
         /// <summary>左右を1文字に。None はプログラミングエラーとして例外（黙って"R"に倒さない）。</summary>
         public static string Side(UserAction s)
         {

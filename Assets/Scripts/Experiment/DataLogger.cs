@@ -19,6 +19,7 @@ namespace ReactionTest.Experiment
 
         private string _outputDir;
         private string _trialPath;
+        private SessionMeta _session;
         private readonly List<TrialRecord> _buffer = new List<TrialRecord>();
 
         private const string CsvHeader =
@@ -28,6 +29,7 @@ namespace ReactionTest.Experiment
         public void InitializeWithPath(SessionMeta session, string outputDir)
         {
             _outputDir = outputDir;
+            _session = session;
             Directory.CreateDirectory(_outputDir);
 
             _trialPath = Path.Combine(_outputDir, trialFileName);
@@ -36,14 +38,25 @@ namespace ReactionTest.Experiment
                 File.WriteAllText(_trialPath, CsvHeader + Environment.NewLine, Encoding.UTF8);
             }
 
-            SaveSessionInfo(session);
+            SaveSessionInfo();
             Debug.Log($"DataLogger: Output directory = {_outputDir}");
         }
 
-        private void SaveSessionInfo(SessionMeta session)
+        /// <summary>セッション終了状態を session_info.json に反映（Finish 時に呼ぶ）。</summary>
+        public void FinalizeSession(bool aborted, string abortReason)
         {
+            if (_session == null) return;
+            _session.DatetimeEnd = DateTime.UtcNow.ToString("o");
+            _session.Aborted = aborted;
+            _session.AbortReason = abortReason ?? string.Empty;
+            SaveSessionInfo();
+        }
+
+        private void SaveSessionInfo()
+        {
+            if (_session == null || _outputDir == null) return;
             string sessionInfoPath = Path.Combine(_outputDir, "session_info.json");
-            File.WriteAllText(sessionInfoPath, JsonUtility.ToJson(session, true), Encoding.UTF8);
+            File.WriteAllText(sessionInfoPath, JsonUtility.ToJson(_session, true), Encoding.UTF8);
         }
 
         public string GetOutputDirectory() => _outputDir;

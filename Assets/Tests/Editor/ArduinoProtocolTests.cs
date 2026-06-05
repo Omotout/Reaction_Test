@@ -88,6 +88,16 @@ namespace ReactionTest.Experiment.Tests
         }
 
         [Test]
+        public void IsErrorLine_DetectsArduinoErrors()
+        {
+            Assert.IsTrue(ArduinoProtocol.IsErrorLine("ERR:TRIAL:ARGS"));
+            Assert.IsTrue(ArduinoProtocol.IsErrorLine("  ERR:EMSCFG:RANGE"));
+            Assert.IsFalse(ArduinoProtocol.IsErrorLine("OK:RESET"));
+            Assert.IsFalse(ArduinoProtocol.IsErrorLine(""));
+            Assert.IsFalse(ArduinoProtocol.IsErrorLine(null));
+        }
+
+        [Test]
         public void ParseTrialResult_ToleratesTrailingFields()
         {
             // 前方互換のため余剰フィールドは許容（>=6 で判定）
