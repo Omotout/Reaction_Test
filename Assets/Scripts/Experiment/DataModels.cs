@@ -62,15 +62,22 @@ namespace ReactionTest.Experiment
     public class DeadlineAdaptationEvent
     {
         public PhaseType Phase;
-        public int BlockTrials;           // このブロックの試行数
+        public int BlockTrials;           // このブロックの試行数（左右合計、非タイムアウト）
         public int CountCorrectBeforeDeadline;
         public int CountTotalNonTimeout;
-        public float SuccessRate;         // CorrectBeforeDeadline / TotalNonTimeout
+        public float SuccessRate;         // CorrectBeforeDeadline / TotalNonTimeout（全体）
+        // 左右別カウンタ（AdaptiveDeadlinePerSide=true のとき個別更新に使用、false でも記録だけ残す）
+        public int CountCorrectLeft;
+        public int CountTotalLeft;
+        public int CountCorrectRight;
+        public int CountTotalRight;
+        public float SuccessRateLeft;
+        public float SuccessRateRight;
         public float DeadlineLeftMsBefore;
         public float DeadlineRightMsBefore;
         public float DeadlineLeftMsAfter;
         public float DeadlineRightMsAfter;
-        public string Decision;           // "tighten" / "loosen" / "hold"
+        public string Decision;           // 全体決定 or "L:tighten/R:hold" のような左右別
         public string Timestamp;
     }
 

@@ -289,6 +289,7 @@ MonoBehaviour:
   emsController: {fileID: 3776575}
   subjectId: Test1
   subjectIndex: 0
+  showRuntimeDebugOverlay: 1
 --- !u!4 &259154837
 Transform:
   m_ObjectHideFlags: 0
@@ -570,7 +571,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e26e151125ce21b418443a8a7bbfb10b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ReactionTest.Experiment.ArduinoLink
-  portName: COM5
+  portName: COM9
   baudRate: 115200
   readTimeoutMs: 50
 --- !u!4 &396559378

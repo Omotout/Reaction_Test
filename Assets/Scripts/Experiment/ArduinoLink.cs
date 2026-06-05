@@ -42,7 +42,11 @@ namespace ReactionTest.Experiment
             baudRate = baud;
         }
 
-        private void Start()
+        // Open the port in Awake (not Start) so it is guaranteed to complete before any
+        // other component's Start() — ExperimentOrchestrator.Start() depends on IsConnected
+        // being settled when it runs the setup handshake. Unity has no guaranteed Start order
+        // between MonoBehaviours, but Awake of every enabled component runs before any Start.
+        private void Awake()
         {
             OpenPort();
         }

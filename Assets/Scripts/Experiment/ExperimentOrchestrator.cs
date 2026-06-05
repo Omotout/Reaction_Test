@@ -162,12 +162,21 @@ namespace ReactionTest.Experiment
                           $"medL={medL:F1} medR={medR:F1} → deadline L={_deadlineLeftMs:F1}ms R={_deadlineRightMs:F1}ms");
             }
 
-            // ── EMSLatency（EMS条件のみ）──
+            // ── EMSLatency（EMS条件のみ、Deadline mode は既定でスキップ）──
             _e2tL = 0f; _e2tR = 0f;
-            if (_condition == ExperimentCondition.EMS)
+            bool runEmsLatency = _condition == ExperimentCondition.EMS
+                && (_config.InterventionMode == InterventionMode.Fastest
+                    || _config.RunEmsLatencyInDeadlineMode);
+            if (runEmsLatency)
             {
                 yield return RunEMSLatency();
                 if (_aborted) { yield return Finish(true, _abortReason); yield break; }
+            }
+            else if (_condition == ExperimentCondition.EMS
+                     && _config.InterventionMode == InterventionMode.Deadline)
+            {
+                Debug.Log("Skipping EMSLatency (Deadline mode does not use EMS_to_Touch correction). " +
+                          "Set RunEmsLatencyInDeadlineMode=true to keep it for intensity calibration.");
             }
 
             subjectDataManager.SaveCalibration(new CalibrationData
@@ -309,8 +318,7 @@ namespace ReactionTest.Experiment
             List<float> correctRTs, List<float> leftRTs, List<float> rightRTs)
         {
             StimColor[] colors = TrialListGenerator.GenerateBalancedColors(trials, seed);
-            int blockCorrectBeforeDeadline = 0;
-            int blockNonTimeout = 0;
+            int correctL = 0, totalL = 0, correctR = 0, totalR = 0;
             float deadlineLeftAtBlockStart = _deadlineLeftMs;
             float deadlineRightAtBlockStart = _deadlineRightMs;
 
@@ -359,9 +367,16 @@ namespace ReactionTest.Experiment
                     else rightRTs?.Add(rec.ReactionTimeMs);
                 }
 
-                // Adaptive deadline 用カウンタ（Training & Deadline mode のみ意味を持つ）
-                if (!isTimeout) blockNonTimeout++;
-                if (rec.Outcome == TrialOutcome.CorrectBeforeDeadline) blockCorrectBeforeDeadline++;
+                // Adaptive deadline 用カウンタ（Training & Deadline mode のみ意味を持つ。左右別に集計）
+                bool isLeft = correctHand == UserAction.Left;
+                if (!isTimeout)
+                {
+                    if (isLeft) totalL++; else totalR++;
+                }
+                if (rec.Outcome == TrialOutcome.CorrectBeforeDeadline)
+                {
+                    if (isLeft) correctL++; else correctR++;
+                }
 
                 if (trialEngine.IsAborted)
                 {
@@ -380,7 +395,7 @@ namespace ReactionTest.Experiment
                 && isTraining
                 && EMSPolicy.ShouldFire(_condition))
             {
-                AdaptDeadlineAfterBlock(phase, blockCorrectBeforeDeadline, blockNonTimeout,
+                AdaptDeadlineAfterBlock(phase, correctL, totalL, correctR, totalR,
                     deadlineLeftAtBlockStart, deadlineRightAtBlockStart);
             }
         }
@@ -423,45 +438,75 @@ namespace ReactionTest.Experiment
         }
 
         /// <summary>ブロック終了時に成功率を見て deadline を更新（adaptive）。
-        /// 純粋ロジックは [[DeadlineAdapter]] に分離し、ここではセッション状態への反映＋ログ記録のみ。
-        /// AdaptiveDeadlinePerSide はフックとして残置（現状は左右へ同 delta）。
+        /// AdaptiveDeadlinePerSide=true: 左右独立に DeadlineAdapter.Adapt を呼ぶ。
+        /// AdaptiveDeadlinePerSide=false: 左右合算の成功率で 1 回 Adapt を呼び、両側に同 delta を適用。
         /// </summary>
-        private void AdaptDeadlineAfterBlock(PhaseType phase, int correctBefore, int totalNonTimeout,
+        private void AdaptDeadlineAfterBlock(PhaseType phase,
+            int correctLeft, int totalLeft, int correctRight, int totalRight,
             float deadlineLeftBefore, float deadlineRightBefore)
         {
-            float rate = totalNonTimeout > 0 ? correctBefore / (float)totalNonTimeout : 0f;
-            _lastBlockSuccessRate = rate;
+            int totalAll = totalLeft + totalRight;
+            int correctAll = correctLeft + correctRight;
+            float rateL = totalLeft > 0 ? correctLeft / (float)totalLeft : 0f;
+            float rateR = totalRight > 0 ? correctRight / (float)totalRight : 0f;
+            float rateAll = totalAll > 0 ? correctAll / (float)totalAll : 0f;
+            _lastBlockSuccessRate = rateAll;
             _lastBlockPhase = phase;
 
-            var dec = DeadlineAdapter.Adapt(
-                _deadlineLeftMs, correctBefore, totalNonTimeout,
-                _config.TargetSuccessRateUpper, _config.TargetSuccessRateLower,
-                _config.DeadlineStepMs, _config.MinDeadlineMs, _config.MaxDeadlineMs,
-                _config.UseAdaptiveDeadline);
-            float newLeft = dec.NewDeadlineMs;
-            // 同 delta を右にも適用（左右別カウンタは将来拡張）
-            float delta = newLeft - _deadlineLeftMs;
-            float newRight = Mathf.Clamp(_deadlineRightMs + delta, _config.MinDeadlineMs, _config.MaxDeadlineMs);
-            _deadlineLeftMs = newLeft;
-            _deadlineRightMs = newRight;
+            string decision;
+            if (_config.AdaptiveDeadlinePerSide)
+            {
+                var decL = DeadlineAdapter.Adapt(
+                    _deadlineLeftMs, correctLeft, totalLeft,
+                    _config.TargetSuccessRateUpper, _config.TargetSuccessRateLower,
+                    _config.DeadlineStepMs, _config.MinDeadlineMs, _config.MaxDeadlineMs,
+                    _config.UseAdaptiveDeadline);
+                var decR = DeadlineAdapter.Adapt(
+                    _deadlineRightMs, correctRight, totalRight,
+                    _config.TargetSuccessRateUpper, _config.TargetSuccessRateLower,
+                    _config.DeadlineStepMs, _config.MinDeadlineMs, _config.MaxDeadlineMs,
+                    _config.UseAdaptiveDeadline);
+                _deadlineLeftMs = decL.NewDeadlineMs;
+                _deadlineRightMs = decR.NewDeadlineMs;
+                decision = $"L:{decL.Action} / R:{decR.Action}";
+            }
+            else
+            {
+                // 左右合算で 1 回更新
+                var dec = DeadlineAdapter.Adapt(
+                    _deadlineLeftMs, correctAll, totalAll,
+                    _config.TargetSuccessRateUpper, _config.TargetSuccessRateLower,
+                    _config.DeadlineStepMs, _config.MinDeadlineMs, _config.MaxDeadlineMs,
+                    _config.UseAdaptiveDeadline);
+                float delta = dec.NewDeadlineMs - _deadlineLeftMs;
+                _deadlineLeftMs = dec.NewDeadlineMs;
+                _deadlineRightMs = Mathf.Clamp(_deadlineRightMs + delta, _config.MinDeadlineMs, _config.MaxDeadlineMs);
+                decision = dec.Action;
+            }
 
             var ev = new DeadlineAdaptationEvent
             {
                 Phase = phase,
-                BlockTrials = totalNonTimeout,
-                CountCorrectBeforeDeadline = correctBefore,
-                CountTotalNonTimeout = totalNonTimeout,
-                SuccessRate = rate,
+                BlockTrials = totalAll,
+                CountCorrectBeforeDeadline = correctAll,
+                CountTotalNonTimeout = totalAll,
+                SuccessRate = rateAll,
+                CountCorrectLeft = correctLeft,
+                CountTotalLeft = totalLeft,
+                CountCorrectRight = correctRight,
+                CountTotalRight = totalRight,
+                SuccessRateLeft = rateL,
+                SuccessRateRight = rateR,
                 DeadlineLeftMsBefore = deadlineLeftBefore,
                 DeadlineRightMsBefore = deadlineRightBefore,
                 DeadlineLeftMsAfter = _deadlineLeftMs,
                 DeadlineRightMsAfter = _deadlineRightMs,
-                Decision = dec.Action,
+                Decision = decision,
                 Timestamp = DateTime.UtcNow.ToString("o")
             };
             dataLogger.AppendDeadlineAdaptation(ev);
-            Debug.Log($"[Adaptive] {phase}: rate={rate:P0} ({correctBefore}/{totalNonTimeout}), decision={dec.Action}, " +
-                      $"deadline L={_deadlineLeftMs:F0}ms R={_deadlineRightMs:F0}ms");
+            Debug.Log($"[Adaptive] {phase}: rate L={rateL:P0}({correctLeft}/{totalLeft}) R={rateR:P0}({correctRight}/{totalRight}) " +
+                      $"decision={decision} → deadline L={_deadlineLeftMs:F0}ms R={_deadlineRightMs:F0}ms");
         }
 
         private IEnumerator RunEMSLatency()
