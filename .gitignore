@@ -38,6 +38,10 @@
 # Unity3D generated file on crash reports
 sysinfo.txt
 
+# Batchmode test run artifacts
+test_results.xml
+test_run.log
+
 # Builds
 *.apk
 *.aab
@@ -58,6 +62,14 @@ crashlytics-build.properties
 ExperimentData/
 TestData/
 Analysis/results*/
+
+# Generated dummy data (regenerable via make_dummy_data.py)
+ExperimentData_dummy*/
+
+# Pre-experiment power-analysis outputs (regenerable by re-running hddm_sim scripts)
+hddm_sim/results_*/
+hddm_sim/__pycache__/
+hddm_sim/MCMC.pickle
 
 # Python
 __pycache__/

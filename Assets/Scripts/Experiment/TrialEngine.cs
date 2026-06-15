@@ -1,500 +1,250 @@
-// ========================================================================
-// V3: CRT特化 + EMSLatencyフェーズ対応
-// - TaskType引数を全メソッドから削除
-// - RunSingleTrial: CRT固定（ターゲット左右ランダム、色で表現）
-// - RunEMSLatencyTrial: 視覚刺激なし、EMS発火→キー押下のレイテンシ測定
-// - フェーズごとの試行数をインスペクターから設定可能
-// - 【重要】エラー試行もデータとして返す（破棄しない）
-// ========================================================================
-
 using System;
 using System.Collections;
-using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
 
 namespace ReactionTest.Experiment
 {
+    /// <summary>
+    /// Arduino主導の試行実行。Unityは TRIAL/EMSLAT を送り、TRIAL_RESULT/EMSLAT_RESULT を待って採点・記録する。
+    /// 刺激提示・RT計測・EMS発火スケジューリングはArduino側。
+    /// </summary>
     public class TrialEngine : MonoBehaviour
     {
-        [Header("Stimulus")]
-        [SerializeField] private Image stimulusImage;
-        [SerializeField] private Color leftColor = Color.green;   // 左ターゲット色
-        [SerializeField] private Color rightColor = Color.red;    // 右ターゲット色
-        [SerializeField] private float minPreStimulusWaitSec = 0.8f;
-        [SerializeField] private float maxPreStimulusWaitSec = 1.6f;
-        [SerializeField] private float responseWindowSec = 1.0f;
+        [Header("Link / EMS")]
+        [SerializeField] private ArduinoLink arduinoLink;
+        [SerializeField] private EMSController emsController;
 
-        [Header("Feedback")]
+        [Header("Feedback (RTモニタ)")]
         [SerializeField] private Text feedbackText;
         [SerializeField] private bool showReactionTimeFeedback = true;
         [SerializeField] private float feedbackDurationSec = 0.8f;
 
-        [Header("Phase Trial Counts (Inspector で変更可)")]
-        [SerializeField] private int practiceTrials = 50;
-        [SerializeField] private int baselineTrials = 80;
-        [SerializeField] private int emsLatencyTrialsPerSide = 10;
-        [SerializeField] private int trainingTrials = 60;
-        [SerializeField] private int postTestTrials = 80;
+        [Header("Timing")]
+        [Tooltip("TRIAL_RESULT を待つ上限（秒）。Arduino側の応答窓 + 通信余裕。")]
+        [SerializeField] private float resultTimeoutSec = 3.0f;
 
+        private bool _hasTrialResult;
+        private TrialResult _lastTrialResult;
+        private bool _hasLatResult;
+        private EmsLatencyResult _lastLatResult;
+        private bool _waitingForArduinoResult;
+        private bool _hasArduinoError;
+        private string _lastArduinoError;
 
+        // 送信ごとに単調増加するシーケンスID。結果はこのIDと一致するものだけ採用し、
+        // タイムアウト後に届く前試行の遅延結果（試行ずれの原因）を破棄する。
+        private int _seq;
+        private int _expectedTrialId;
+        private int _expectedLatId;
 
-        [Header("EMS Latency Phase")]
-        [Tooltip("EMSLatencyフェーズのEMS発火間隔（秒）")]
-        [SerializeField] private float emsLatencyIntervalMin = 2.0f;
-        [SerializeField] private float emsLatencyIntervalMax = 4.0f;
-
-        [Header("EMS")]
-        [SerializeField] private EMSController emsController;
-
-        // 高精度タイマー
-        private Stopwatch _reactionStopwatch = new Stopwatch();
-
-        // 発火予約中のEMS Coroutineハンドル（試行終了時に必ずStopして次試行への持ち越しを防ぐ）
-        private Coroutine _emsDispatchCoroutine;
-
-        // 緊急停止フラグ
-        private bool _isAborted = false;
+        private bool _isAborted;
+        private string _abortReason = string.Empty;
         public bool IsAborted => _isAborted;
-        public void ResetAbort() => _isAborted = false;
+        /// <summary>Abort 時の理由文字列。Esc 中断時は空文字（Orchestrator 側で文脈を補う）。</summary>
+        public string AbortReason => _abortReason;
 
-        // ============================================================
-        // Public accessors for ExperimentOrchestrator
-        // ============================================================
+        public void SetArduinoLink(ArduinoLink link) => arduinoLink = link;
+        public void SetEMSController(EMSController c) => emsController = c;
 
-        public int PracticeTrials => practiceTrials;
-        public int BaselineTrials => baselineTrials;
-        public int EMSLatencyTrialsPerSide => emsLatencyTrialsPerSide;
-        public int TrainingTrials => trainingTrials;
-        public int PostTestTrials => postTestTrials;
-
-
-
-        public bool ShowReactionTimeFeedback
+        private void OnEnable()
         {
-            get => showReactionTimeFeedback;
-            set => showReactionTimeFeedback = value;
-        }
-
-        private void Awake()
-        {
-            HideStimulusImmediate();
-            HideFeedbackImmediate();
-
-            // 高精度タイミングのためフレームレートを最大化
-            double refreshRate = Screen.currentResolution.refreshRateRatio.value;
-            int targetFps = Mathf.Max(Mathf.RoundToInt((float)refreshRate * 2f), 120);
-            Application.targetFrameRate = targetFps;
-            QualitySettings.vSyncCount = 0;
-            UnityEngine.Debug.Log($"TrialEngine: Display {refreshRate:F2}Hz → Target FPS: {targetFps}");
-        }
-
-        private void OnValidate()
-        {
-            if (!Application.isPlaying)
+            if (arduinoLink != null)
             {
-                HideStimulusImmediate();
-                HideFeedbackImmediate();
+                arduinoLink.OnTrialResult += HandleTrialResult;
+                arduinoLink.OnEmsLatencyResult += HandleLatResult;
+                arduinoLink.OnErrorLine += HandleArduinoError;
+            }
+            HideFeedback();
+        }
+
+        private void OnDisable()
+        {
+            if (arduinoLink != null)
+            {
+                arduinoLink.OnTrialResult -= HandleTrialResult;
+                arduinoLink.OnEmsLatencyResult -= HandleLatResult;
+                arduinoLink.OnErrorLine -= HandleArduinoError;
             }
         }
 
-        private void Start()
+        private void HandleTrialResult(TrialResult r)
         {
-            // 初期状態で刺激を非表示
-            HideStimulusImmediate();
-            HideFeedbackImmediate();
+            if (r.Id != _expectedTrialId)
+            {
+                UnityEngine.Debug.LogWarning($"TrialEngine: discarding stale TRIAL_RESULT id={r.Id} (expected {_expectedTrialId}).");
+                return;
+            }
+            _lastTrialResult = r;
+            _hasTrialResult = true;
         }
 
-        public void SetEMSController(EMSController controller)
+        private void HandleLatResult(EmsLatencyResult r)
         {
-            emsController = controller;
+            if (r.Id != _expectedLatId)
+            {
+                UnityEngine.Debug.LogWarning($"TrialEngine: discarding stale EMSLAT_RESULT id={r.Id} (expected {_expectedLatId}).");
+                return;
+            }
+            _lastLatResult = r;
+            _hasLatResult = true;
         }
 
-        // ============================================================
-        // CRT試行（Practice / Baseline / Calibration / Training / PostTest）
-        // ============================================================
-
-        /// <summary>
-        /// 1試行を実行（CRT: 左右2択）
-        /// TaskType引数は廃止 — 常にCRTとして動作
-        /// </summary>
-        /// <param name="forcedTargetSide">
-        /// UserAction.None（デフォルト）= ランダムにターゲット決定。
-        /// Left/Right を指定すると、そのサイドをターゲットとして強制する。
-        /// Calibrationフェーズで、ターゲット側に応じたEMS発火タイミングを
-        /// 事前計算するために使用する。
-        /// </param>
-        public IEnumerator RunSingleTrial(
-            PhaseType phase,
-            int trialIndex,
-            EMSDecision emsDecision,
-            Action<TrialRecord, UserAction> onCompleted,
-            UserAction forcedTargetSide = UserAction.None,
-            TrialInputMode inputMode = TrialInputMode.MouseButtons)
+        private void HandleArduinoError(string line)
         {
-            if (stimulusImage == null)
+            if (!_waitingForArduinoResult)
             {
-                UnityEngine.Debug.LogError("TrialEngine: stimulusImage is not assigned.");
-                yield break;
+                UnityEngine.Debug.LogWarning($"TrialEngine: Arduino error outside active trial: {line}");
+                return;
             }
 
-            // フィードバックを非表示
-            if (feedbackText != null)
-            {
-                feedbackText.gameObject.SetActive(false);
-            }
-
-            stimulusImage.gameObject.SetActive(false);
-            float preWait = UnityEngine.Random.Range(minPreStimulusWaitSec, maxPreStimulusWaitSec);
-            yield return new WaitForSeconds(preWait);
-
-            // ターゲット決定: 強制指定があればそれを使用、なければランダム
-            UserAction targetSide = forcedTargetSide != UserAction.None
-                ? forcedTargetSide
-                : TaskRule.PickTargetSide();
-
-            // 色で表現（緑=左、赤=右）
-            stimulusImage.color = targetSide == UserAction.Left ? leftColor : rightColor;
-            stimulusImage.gameObject.SetActive(true);
-
-            // 高精度タイマーをリセット・開始
-            _reactionStopwatch.Reset();
-            _reactionStopwatch.Start();
-
-            if (emsDecision.Enabled)
-            {
-                _emsDispatchCoroutine = StartCoroutine(DispatchEMS(emsDecision.FireTimingMs, targetSide));
-            }
-
-            UserAction action = UserAction.None;
-            double reactionTimeMs = -1.0;
-            
-            var keyboard = Keyboard.current;
-
-            while (_reactionStopwatch.Elapsed.TotalSeconds < responseWindowSec)
-            {
-                // 緊急停止: Escapeキー
-                if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
-                {
-                    _isAborted = true;
-                    if (emsController != null) emsController.EmergencyStop();
-                    UnityEngine.Debug.LogError("TrialEngine: ABORT requested (Escape key)");
-                    break;
-                }
-
-                if (TryReadResponse(inputMode, out action))
-                {
-                    reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
-                    break;
-                }
-
-                yield return null;
-            }
-
-            _reactionStopwatch.Stop();
-            stimulusImage.gameObject.SetActive(false);
-
-            // 予約済みEMS発火コルーチンを停止し、次試行/次フェーズへの持ち越しを防ぐ
-            CancelPendingEMSDispatch();
-
-            bool isCorrect = TaskRule.Evaluate(targetSide, action, out ErrorType errorType);
-
-            // フィードバック表示
-            if (showReactionTimeFeedback && feedbackText != null)
-            {
-                yield return ShowFeedback(reactionTimeMs, isCorrect, errorType);
-            }
-
-            // 【重要】エラー試行も記録する（TrialRecordのSubjectId/Group/AgencyLikertはOrchestrator側で設定）
-            TrialRecord record = new TrialRecord
-            {
-                Phase = phase,
-                TrialNumber = trialIndex,
-                TargetSide = targetSide,
-                ResponseSide = action,
-                IsCorrect = isCorrect,
-                ReactionTimeMs = (float)reactionTimeMs,
-                EMSOffsetMs = emsDecision.OffsetMs,           // 速めたい量
-                EMSFireTimingMs = emsDecision.FireTimingMs,   // 実発火タイミング
-                AgencyYes = false, // Calibrationフェーズ以外は使われない
-                Timestamp = DateTime.UtcNow.ToString("o")
-            };
-
-            onCompleted?.Invoke(record, targetSide);
+            _lastArduinoError = line;
+            _hasArduinoError = true;
         }
 
-        // ============================================================
-        // EMSLatency試行（視覚刺激なし、EMS→キー押下のレイテンシ測定）
-        // ============================================================
-
-        /// <summary>
-        /// EMSLatencyフェーズ用: 視覚刺激なし、一定間隔でEMSを発火し、
-        /// 通電開始から実際にキーが押し込まれるまでのミリ秒数を測定する
-        /// </summary>
-        /// <param name="side">EMS発火チャンネル (Left / Right)</param>
-        /// <param name="trialIndex">試行番号</param>
-        /// <param name="onCompleted">完了コールバック（TrialRecord）</param>
-        public IEnumerator RunEMSLatencyTrial(
-            UserAction side,
-            int trialIndex,
+        public IEnumerator RunTrial(
+            PhaseType phase, int trialIndex, StimColor color, UserAction correctHand,
+            UserAction emsSide, int emsDelayUs, ExperimentCondition condition, string sessionDate,
             Action<TrialRecord> onCompleted)
         {
-            // 視覚刺激は表示しない
-            if (stimulusImage != null)
-            {
-                stimulusImage.gameObject.SetActive(false);
-            }
-            if (feedbackText != null)
-            {
-                feedbackText.gameObject.SetActive(false);
-            }
+            HideFeedback();
+            int id = ++_seq;
+            _expectedTrialId = id;
+            _hasTrialResult = false;
+            _hasArduinoError = false;
+            _lastArduinoError = null;
+            _waitingForArduinoResult = true;
 
-            // ランダムな待機（被験者が予測できないように）
-            float preWait = UnityEngine.Random.Range(emsLatencyIntervalMin, emsLatencyIntervalMax);
-            yield return new WaitForSeconds(preWait);
-
-            // EMS発火と同時に高精度タイマー開始
-            _reactionStopwatch.Reset();
-            _reactionStopwatch.Start();
-
-            if (emsController != null)
-            {
-                emsController.Trigger(side);
-            }
+            if (arduinoLink != null)
+                arduinoLink.SendTrial(id, color, correctHand, emsSide, emsDelayUs);
             else
-            {
-                UnityEngine.Debug.Log($"[EMS Simulation] Latency trial: {side}");
-            }
+                UnityEngine.Debug.Log($"[Sim] TRIAL#{id} {color}/{correctHand} ems={emsSide}@{emsDelayUs}us");
 
-            UserAction action = UserAction.None;
-            double reactionTimeMs = -1.0;
-
-            var mouse = Mouse.current;
+            float deadline = Time.realtimeSinceStartup + resultTimeoutSec;
             var keyboard = Keyboard.current;
-
-            // キー押下を待つ（タイムアウト付き）
-            while (_reactionStopwatch.Elapsed.TotalSeconds < responseWindowSec)
+            while (!_hasTrialResult)
             {
-                // 緊急停止
-                if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
+                if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Abort(); break; }
+                if (_hasArduinoError) { Abort($"Arduino error during TRIAL#{id}: {_lastArduinoError}"); break; }
+                if (Time.realtimeSinceStartup > deadline)
                 {
-                    _isAborted = true;
-                    if (emsController != null) emsController.EmergencyStop();
-                    UnityEngine.Debug.LogError("TrialEngine: ABORT requested (Escape key)");
+                    UnityEngine.Debug.LogWarning($"TrialEngine: TRIAL_RESULT timeout (trial {trialIndex}).");
                     break;
                 }
-
-                if (mouse != null)
-                {
-                    if (mouse.leftButton.wasPressedThisFrame)
-                    {
-                        action = UserAction.Left;
-                        reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
-                        break;
-                    }
-
-                    if (mouse.rightButton.wasPressedThisFrame)
-                    {
-                        action = UserAction.Right;
-                        reactionTimeMs = _reactionStopwatch.Elapsed.TotalMilliseconds;
-                        break;
-                    }
-                }
-
                 yield return null;
             }
+            _waitingForArduinoResult = false;
 
-            _reactionStopwatch.Stop();
+            TrialResult res = _hasTrialResult ? _lastTrialResult
+                : new TrialResult { TouchedSide = UserAction.None, RtMs = -1f, Peak = 0, EmsFired = false, TimedOut = true };
 
-            // フィードバック表示
-            if (showReactionTimeFeedback && feedbackText != null && reactionTimeMs > 0)
+            bool isCorrect = !res.TimedOut && res.TouchedSide == correctHand;
+
+            var record = new TrialRecord
             {
-                feedbackText.text = $"{reactionTimeMs:F0} ms";
-                feedbackText.color = Color.cyan;
-                feedbackText.gameObject.SetActive(true);
-                yield return new WaitForSeconds(feedbackDurationSec);
-                feedbackText.gameObject.SetActive(false);
-            }
-
-            TrialRecord record = new TrialRecord
-            {
-                Phase = PhaseType.EMSLatency,
+                Condition = condition,
+                SessionDate = sessionDate,
+                Phase = phase,
                 TrialNumber = trialIndex,
-                TargetSide = side,           // EMS発火チャンネル
-                ResponseSide = action,
-                IsCorrect = action == side,  // 正しい側を押したか
-                ReactionTimeMs = (float)reactionTimeMs,
-                EMSOffsetMs = 0f,            // 刺激提示と同時にEMS発火するため概念的に0
-                EMSFireTimingMs = 0f,
-                AgencyYes = false,
+                StimColor = color,
+                CorrectHand = correctHand,
+                ResponseSide = res.TouchedSide,
+                IsCorrect = isCorrect,
+                ReactionTimeMs = res.RtMs,
+                Peak = res.Peak,
+                EmsFired = res.EmsFired,
+                EmsSide = emsSide,
+                EmsFireTimingMs = emsDelayUs / 1000f,
                 Timestamp = DateTime.UtcNow.ToString("o")
+                // SubjectId / ExclusionFlag / EmsToTouchMs は Orchestrator が補完
             };
+
+            if (showReactionTimeFeedback && !res.TimedOut && res.RtMs > 0f)
+                yield return ShowFeedback($"{res.RtMs:F0} ms", Color.black);
+            else if (showReactionTimeFeedback)
+                yield return ShowFeedback(res.TimedOut ? "—" : "?", new Color(0.25f, 0.25f, 0.25f));
 
             onCompleted?.Invoke(record);
         }
 
-        // ============================================================
-        // Private helpers
-        // ============================================================
+        public IEnumerator RunEMSLatencyTrial(UserAction side, int trialIndex, Action<float> onLatencyMs)
+        {
+            HideFeedback();
+            int id = ++_seq;
+            _expectedLatId = id;
+            _hasLatResult = false;
+            _hasArduinoError = false;
+            _lastArduinoError = null;
+            _waitingForArduinoResult = true;
 
-        private IEnumerator ShowFeedback(double reactionTimeMs, bool isCorrect, ErrorType errorType)
+            if (arduinoLink != null) arduinoLink.SendEmsLatency(id, side);
+            else UnityEngine.Debug.Log($"[Sim] EMSLAT#{id} {side}");
+
+            float deadline = Time.realtimeSinceStartup + resultTimeoutSec;
+            var keyboard = Keyboard.current;
+            while (!_hasLatResult)
+            {
+                if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) { Abort(); break; }
+                if (_hasArduinoError) { Abort($"Arduino error during EMSLAT#{id}: {_lastArduinoError}"); break; }
+                if (Time.realtimeSinceStartup > deadline)
+                {
+                    UnityEngine.Debug.LogWarning($"TrialEngine: EMSLAT_RESULT timeout (trial {trialIndex}).");
+                    break;
+                }
+                yield return null;
+            }
+            _waitingForArduinoResult = false;
+
+            float latency = (_hasLatResult && !_lastLatResult.TimedOut) ? _lastLatResult.LatencyMs : -1f;
+            if (showReactionTimeFeedback && latency > 0f)
+                yield return ShowFeedback($"{latency:F0} ms", new Color(0f, 0.45f, 0.65f));
+            onLatencyMs?.Invoke(latency);
+        }
+
+        private void Abort(string reason = "Escape")
+        {
+            if (_isAborted) return;
+            _isAborted = true;
+            // Esc 中断（"Escape"）は Orchestrator 側で phase/trial 情報を付け足すため空文字を残し、
+            // Arduino エラーなど reason が具体的に渡された場合のみそれを保持する。
+            _abortReason = reason == "Escape" ? string.Empty : reason;
+            if (arduinoLink != null) arduinoLink.SendReset();
+            if (emsController != null) emsController.EmergencyStop();
+            UnityEngine.Debug.LogError($"TrialEngine: ABORT ({reason}) - sent RESET to Arduino.");
+        }
+
+        private IEnumerator ShowFeedback(string msg, Color color)
         {
             if (feedbackText == null) yield break;
-
-            string feedbackMessage;
-            Color feedbackColor;
-
-            if (errorType == ErrorType.Omission)
-            {
-                feedbackMessage = "タイムアウト";
-                feedbackColor = Color.gray;
-            }
-            else if (!isCorrect)
-            {
-                feedbackMessage = "エラー";
-                feedbackColor = Color.red;
-            }
-            else
-            {
-                feedbackMessage = $"{reactionTimeMs:F0} ms";
-                feedbackColor = Color.white;
-            }
-
-            feedbackText.text = feedbackMessage;
-            feedbackText.color = feedbackColor;
+            ConfigureFeedbackText();
+            feedbackText.text = msg;
+            feedbackText.color = color;
             feedbackText.gameObject.SetActive(true);
-
             yield return new WaitForSeconds(feedbackDurationSec);
-
             feedbackText.gameObject.SetActive(false);
         }
 
-        private bool TryReadResponse(TrialInputMode inputMode, out UserAction action)
+        private void HideFeedback()
         {
-            action = UserAction.None;
-
-            if (inputMode == TrialInputMode.CtrlAndRightArrow)
-            {
-                var keyboard = Keyboard.current;
-                if (keyboard == null) return false;
-
-                if (keyboard.leftCtrlKey.wasPressedThisFrame || keyboard.rightCtrlKey.wasPressedThisFrame)
-                {
-                    action = UserAction.Left;
-                    return true;
-                }
-
-                if (keyboard.rightArrowKey.wasPressedThisFrame)
-                {
-                    action = UserAction.Right;
-                    return true;
-                }
-
-                return false;
-            }
-
-            if (inputMode == TrialInputMode.ArrowKeys)
-            {
-                var keyboard = Keyboard.current;
-                if (keyboard == null) return false;
-
-                if (keyboard.leftArrowKey.wasPressedThisFrame)
-                {
-                    action = UserAction.Left;
-                    return true;
-                }
-
-                if (keyboard.rightArrowKey.wasPressedThisFrame)
-                {
-                    action = UserAction.Right;
-                    return true;
-                }
-
-                return false;
-            }
-
-            var mouse = Mouse.current;
-            if (mouse == null) return false;
-
-            if (mouse.leftButton.wasPressedThisFrame)
-            {
-                action = UserAction.Left;
-                return true;
-            }
-
-            if (mouse.rightButton.wasPressedThisFrame)
-            {
-                action = UserAction.Right;
-                return true;
-            }
-
-            return false;
+            if (feedbackText != null) feedbackText.gameObject.SetActive(false);
         }
 
-        private void HideStimulusImmediate()
+        private void ConfigureFeedbackText()
         {
-            if (stimulusImage != null)
-            {
-                stimulusImage.gameObject.SetActive(false);
-            }
-        }
+            if (feedbackText == null) return;
 
-        private void HideFeedbackImmediate()
-        {
-            if (feedbackText != null)
-            {
-                feedbackText.gameObject.SetActive(false);
-            }
-        }
+            var rect = feedbackText.rectTransform;
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(500f, 120f);
 
-        /// <summary>
-        /// 予約中のEMS発火コルーチンを停止する。
-        /// 被験者が早期に反応した場合や緊急停止時に、待機中の通電予約が次試行へ
-        /// 持ち越されるのを防ぐ。
-        /// </summary>
-        private void CancelPendingEMSDispatch()
-        {
-            if (_emsDispatchCoroutine != null)
-            {
-                StopCoroutine(_emsDispatchCoroutine);
-                _emsDispatchCoroutine = null;
-            }
-        }
-
-        /// <summary>
-        /// 刺激提示から fireTimingMs 後にEMSを発火する。
-        /// fireTimingMs は「刺激提示からの遅延ms」であり、EMSPolicyから受け取った
-        /// BaselineRT - Offset - EMSLatency に等しい。
-        /// </summary>
-        private IEnumerator DispatchEMS(float fireTimingMs, UserAction targetSide)
-        {
-            if (fireTimingMs > 0f)
-            {
-                // 高精度待機: 50ms未満はビジーウェイト
-                if (fireTimingMs < 50f)
-                {
-                    var sw = Stopwatch.StartNew();
-                    while (sw.Elapsed.TotalMilliseconds < fireTimingMs)
-                    {
-                        // Spin wait
-                    }
-                }
-                else
-                {
-                    yield return new WaitForSeconds(fireTimingMs / 1000f);
-                }
-            }
-
-            // EMS発火（ターゲット側のチャンネル）
-            if (emsController != null)
-            {
-                emsController.Trigger(targetSide);
-            }
-            else
-            {
-                UnityEngine.Debug.Log($"[EMS Simulation] Triggered at fireTiming={fireTimingMs:F1}ms, side: {targetSide}");
-            }
+            feedbackText.alignment = TextAnchor.MiddleCenter;
+            feedbackText.fontSize = 44;
+            feedbackText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            feedbackText.verticalOverflow = VerticalWrapMode.Overflow;
         }
     }
 }

@@ -6,86 +6,62 @@ using UnityEngine;
 
 namespace ReactionTest.Experiment
 {
-    // ========================================================================
-    // V3: CRT特化 — SRT/DRTフィールド完全削除、左右別オフセット対応
-    // - SubjectConfig: 左右別のAgencyオフセットとEMSレイテンシを保存
-    // - ExperimentRunMode依存を削除 → セッション名を "session_XX" に統一
-    // ========================================================================
-
     [Serializable]
     public class SubjectConfig
     {
         public string SubjectId;
-        public GroupType Group;
+        public int SubjectIndex;
+        public ConditionOrder Order;
+        public SRMapping Mapping;
         public int LatestSessionNumber;
         public string LastUpdated;
-
-        // CRT用キャリブレーション結果（左右別）
-        public float AgencyOffsetLeft;
-        public float AgencyOffsetRight;
-        public float BaselineRTLeft;
-        public float BaselineRTRight;
-        public float EMSLatencyLeft;
-        public float EMSLatencyRight;
-
-        // キャリブレーション完了フラグ
-        public bool CalibrationCompleted;
     }
 
     public class SubjectDataManager : MonoBehaviour
     {
         [SerializeField] private string dataFolderName = "ExperimentData";
-        [SerializeField] private string testDataFolderName = "TestData";
+
+        [Header("Manual Session Override")]
+        [Tooltip("ON: use the session number and condition below instead of the saved counterbalance session.")]
+        [SerializeField] private bool useManualSessionSettings = false;
+        [SerializeField, Range(1, 2)] private int manualSessionNumber = 1;
+        [SerializeField] private ExperimentCondition manualCondition = ExperimentCondition.EMS;
 
         private string _rootPath;
-        private string _testRootPath;
         private SubjectConfig _currentConfig;
         private string _currentSessionPath;
+        private int _currentSessionNumber;
+        private ExperimentCondition _currentCondition;
 
         public SubjectConfig CurrentConfig => _currentConfig;
         public string CurrentSessionPath => _currentSessionPath;
         public string RootPath => _rootPath;
-        public string TestRootPath => _testRootPath;
-        public bool HasCalibrationData => _currentConfig != null && _currentConfig.CalibrationCompleted;
+        public int CurrentSessionNumber => _currentSessionNumber;
+        public SRMapping CurrentMapping => _currentConfig != null ? _currentConfig.Mapping : SRMapping.RedRight;
 
         private void Awake()
         {
-            // プロジェクトフォルダ直下に保存
-            // Application.dataPath = {ProjectRoot}/Assets
             string projectRoot = Directory.GetParent(Application.dataPath).FullName;
             _rootPath = Path.Combine(projectRoot, dataFolderName);
-            _testRootPath = Path.Combine(projectRoot, testDataFolderName);
-
             Debug.Log($"SubjectDataManager: Data root = {_rootPath}");
-            Debug.Log($"SubjectDataManager: Test data root = {_testRootPath}");
         }
 
-        /// <summary>
-        /// 被験者データを読み込み、なければ新規作成。
-        /// 既存被験者の場合は保存済みGroupを優先し、Inspector値との不一致はエラーログを出す。
-        /// 群を変更したい場合は被験者フォルダを削除またはリネームして新規作成扱いにする。
-        /// </summary>
-        /// <returns>実際に採用された群（既存なら保存済み、新規ならInspector指定）</returns>
-        public GroupType LoadOrCreateSubject(string subjectId, GroupType group)
+        public SubjectConfig LoadOrCreateSubject(string subjectId, int subjectIndex)
         {
-            string subjectPath = GetSubjectPath(subjectId);
+            string subjectPath = Path.Combine(_rootPath, subjectId);
             string configPath = Path.Combine(subjectPath, "config.json");
 
             if (File.Exists(configPath))
             {
-                string json = File.ReadAllText(configPath);
-                _currentConfig = JsonUtility.FromJson<SubjectConfig>(json);
-
-                if (_currentConfig.Group != group)
+                _currentConfig = JsonUtility.FromJson<SubjectConfig>(File.ReadAllText(configPath));
+                if (_currentConfig.SubjectIndex != subjectIndex)
                 {
-                    Debug.LogError(
-                        $"Group mismatch for {subjectId}: saved={_currentConfig.Group}, inspector={group}. " +
-                        $"Using SAVED group to preserve data integrity. " +
-                        $"To change groups, delete or rename the subject folder.");
+                    Debug.LogError($"SubjectIndex mismatch for {subjectId}: saved={_currentConfig.SubjectIndex}, " +
+                                   $"inspector={subjectIndex}. Using SAVED to preserve counterbalance integrity.");
                 }
-
-                Debug.Log($"Loaded subject data: {subjectId} " +
-                          $"(Group: {_currentConfig.Group}, Calibration: {_currentConfig.CalibrationCompleted})");
+                Debug.Log($"Loaded subject {subjectId}: index={_currentConfig.SubjectIndex}, " +
+                          $"order={_currentConfig.Order}, mapping={_currentConfig.Mapping}, " +
+                          $"latestSession={_currentConfig.LatestSessionNumber}");
             }
             else
             {
@@ -93,189 +69,89 @@ namespace ReactionTest.Experiment
                 _currentConfig = new SubjectConfig
                 {
                     SubjectId = subjectId,
-                    Group = group,
+                    SubjectIndex = subjectIndex,
+                    Order = Counterbalance.OrderFor(subjectIndex),
+                    Mapping = Counterbalance.MappingFor(subjectIndex),
                     LatestSessionNumber = 0,
-                    CalibrationCompleted = false,
                     LastUpdated = DateTime.Now.ToString("o")
                 };
                 SaveConfig();
-                Debug.Log($"Created new subject: {subjectId} (Group: {group})");
+                Debug.Log($"Created subject {subjectId}: index={subjectIndex}, " +
+                          $"order={_currentConfig.Order}, mapping={_currentConfig.Mapping}");
             }
-
-            return _currentConfig.Group;
+            return _currentConfig;
         }
 
-        /// <summary>
-        /// 新しいセッションフォルダを作成
-        /// ExperimentRunMode廃止 → 統一的な "session_XX" 命名
-        /// </summary>
         public string CreateSessionFolder()
         {
-            if (_currentConfig == null)
+            if (_currentConfig == null) { Debug.LogError("Subject not loaded."); return null; }
+            string subjectPath = Path.Combine(_rootPath, _currentConfig.SubjectId);
+            if (useManualSessionSettings)
             {
-                Debug.LogError("Subject not loaded. Call LoadOrCreateSubject first.");
-                return null;
+                _currentSessionNumber = Mathf.Clamp(manualSessionNumber, 1, 2);
+                _currentCondition = manualCondition;
+                Debug.LogWarning($"Manual session settings active: session={_currentSessionNumber}, condition={_currentCondition}. " +
+                                 "Saved counterbalance session count will not be advanced.");
+            }
+            else
+            {
+                _currentConfig.LatestSessionNumber++;
+                _currentSessionNumber = _currentConfig.LatestSessionNumber;
+                SaveConfig();
+                if (_currentSessionNumber <= 2)
+                    _currentCondition = Counterbalance.ConditionForSession(_currentConfig.Order, _currentSessionNumber);
             }
 
-            string subjectPath = GetSubjectPath(_currentConfig.SubjectId);
-            _currentConfig.LatestSessionNumber++;
-
-            string sessionFolder = $"session_{_currentConfig.LatestSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
-            _currentSessionPath = Path.Combine(subjectPath, sessionFolder);
+            string folder = $"session_{_currentSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
+            _currentSessionPath = Path.Combine(subjectPath, folder);
             Directory.CreateDirectory(_currentSessionPath);
-
-            SaveConfig();
             Debug.Log($"Created session folder: {_currentSessionPath}");
             return _currentSessionPath;
         }
 
-        /// <summary>
-        /// テスト用データを保存する専用セッションフォルダを作成
-        /// 保存先: TestData/{SubjectId}/test_XX_yyyyMMdd_HHmmss
-        /// </summary>
-        public string CreateTestSessionFolder(string subjectId)
+        public ExperimentCondition ConditionForCurrentSession()
         {
-            if (string.IsNullOrWhiteSpace(subjectId))
+            if (useManualSessionSettings)
+                return _currentCondition;
+
+            int sessionNumber = _currentSessionNumber;
+
+            if (sessionNumber > 2)
             {
-                Debug.LogError("Subject ID is empty. Set subjectId before creating a test session.");
-                return null;
+                Debug.LogError($"Subject {_currentConfig.SubjectId} already has {sessionNumber - 1} completed/created sessions. " +
+                               "This experiment supports only session 1 and 2 for counterbalancing. " +
+                               "Use a new subject ID such as Test1/Test2 for pilot runs.");
             }
 
-            string subjectPath = GetTestSubjectPath(subjectId);
-            Directory.CreateDirectory(subjectPath);
-
-            int nextSessionNumber = GetNextTestSessionNumber(subjectPath);
-
-            string sessionFolder = $"test_{nextSessionNumber:D2}_{DateTime.Now:yyyyMMdd_HHmmss}";
-            _currentSessionPath = Path.Combine(subjectPath, sessionFolder);
-            Directory.CreateDirectory(_currentSessionPath);
-
-            Debug.Log($"Created test session folder: {_currentSessionPath}");
-            return _currentSessionPath;
+            return Counterbalance.ConditionForSession(_currentConfig.Order, sessionNumber);
         }
 
-        /// <summary>
-        /// キャリブレーション結果を保存（左右別）
-        /// </summary>
-        public void SaveCalibrationResult(
-            float agencyOffsetLeft, float agencyOffsetRight,
-            float baselineRTLeft, float baselineRTRight,
-            float emsLatencyLeft, float emsLatencyRight)
+        public void SaveCalibration(CalibrationData data)
         {
-            if (_currentConfig == null) return;
-
-            _currentConfig.AgencyOffsetLeft = agencyOffsetLeft;
-            _currentConfig.AgencyOffsetRight = agencyOffsetRight;
-            _currentConfig.BaselineRTLeft = baselineRTLeft;
-            _currentConfig.BaselineRTRight = baselineRTRight;
-            _currentConfig.EMSLatencyLeft = emsLatencyLeft;
-            _currentConfig.EMSLatencyRight = emsLatencyRight;
-            _currentConfig.CalibrationCompleted = true;
-            _currentConfig.LastUpdated = DateTime.Now.ToString("o");
-
-            SaveConfig();
-            Debug.Log($"Saved calibration result for {_currentConfig.SubjectId} " +
-                      $"(OffsetL={agencyOffsetLeft}ms, OffsetR={agencyOffsetRight}ms, " +
-                      $"BaselineL={baselineRTLeft}ms, BaselineR={baselineRTRight}ms, " +
-                      $"LatencyL={emsLatencyLeft}ms, LatencyR={emsLatencyRight}ms)");
+            if (_currentSessionPath == null) return;
+            File.WriteAllText(Path.Combine(_currentSessionPath, "calibration.json"),
+                JsonUtility.ToJson(data, true));
         }
 
-        /// <summary>
-        /// AgencyOffsetConfig形式で取得（EMSPolicy用）
-        /// </summary>
-        public AgencyOffsetConfig GetAgencyOffsetConfig()
+        public CalibrationData LoadCalibration()
         {
-            if (_currentConfig == null || !_currentConfig.CalibrationCompleted)
-            {
-                return null;
-            }
-
-            return new AgencyOffsetConfig
-            {
-                OffsetLeft = _currentConfig.AgencyOffsetLeft,
-                OffsetRight = _currentConfig.AgencyOffsetRight,
-                BaselineRTLeft = _currentConfig.BaselineRTLeft,
-                BaselineRTRight = _currentConfig.BaselineRTRight,
-                EMSLatencyLeft = _currentConfig.EMSLatencyLeft,
-                EMSLatencyRight = _currentConfig.EMSLatencyRight
-            };
+            if (_currentSessionPath == null) return null;
+            string p = Path.Combine(_currentSessionPath, "calibration.json");
+            return File.Exists(p) ? JsonUtility.FromJson<CalibrationData>(File.ReadAllText(p)) : null;
         }
 
-        /// <summary>
-        /// 全被験者IDのリストを取得
-        /// </summary>
         public List<string> GetAllSubjectIds()
         {
-            if (!Directory.Exists(_rootPath))
-            {
-                return new List<string>();
-            }
-
-            return Directory.GetDirectories(_rootPath)
-                .Select(Path.GetFileName)
-                .Where(name => !name.StartsWith("."))
-                .OrderBy(name => name)
-                .ToList();
-        }
-
-        /// <summary>
-        /// 被験者のセッション一覧を取得
-        /// </summary>
-        public List<string> GetSessionList(string subjectId)
-        {
-            string subjectPath = GetSubjectPath(subjectId);
-            if (!Directory.Exists(subjectPath))
-            {
-                return new List<string>();
-            }
-
-            return Directory.GetDirectories(subjectPath)
-                .Select(Path.GetFileName)
-                .Where(name => name.StartsWith("session_"))
-                .OrderByDescending(name => name)
-                .ToList();
-        }
-
-        private string GetSubjectPath(string subjectId)
-        {
-            return Path.Combine(_rootPath, subjectId);
-        }
-
-        private string GetTestSubjectPath(string subjectId)
-        {
-            return Path.Combine(_testRootPath, subjectId);
-        }
-
-        private int GetNextTestSessionNumber(string subjectPath)
-        {
-            if (!Directory.Exists(subjectPath))
-            {
-                return 1;
-            }
-
-            int maxSessionNumber = Directory.GetDirectories(subjectPath)
-                .Select(Path.GetFileName)
-                .Where(name => name.StartsWith("test_"))
-                .Select(name =>
-                {
-                    string[] parts = name.Split('_');
-                    if (parts.Length < 2) return 0;
-                    return int.TryParse(parts[1], out int value) ? value : 0;
-                })
-                .DefaultIfEmpty(0)
-                .Max();
-
-            return maxSessionNumber + 1;
+            if (!Directory.Exists(_rootPath)) return new List<string>();
+            return Directory.GetDirectories(_rootPath).Select(Path.GetFileName)
+                .Where(n => !n.StartsWith(".")).OrderBy(n => n).ToList();
         }
 
         private void SaveConfig()
         {
             if (_currentConfig == null) return;
-
-            string subjectPath = GetSubjectPath(_currentConfig.SubjectId);
-            string configPath = Path.Combine(subjectPath, "config.json");
-            string json = JsonUtility.ToJson(_currentConfig, true);
-            File.WriteAllText(configPath, json);
+            string configPath = Path.Combine(_rootPath, _currentConfig.SubjectId, "config.json");
+            File.WriteAllText(configPath, JsonUtility.ToJson(_currentConfig, true));
         }
     }
 }

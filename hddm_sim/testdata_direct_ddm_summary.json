@@ -1,0 +1,32 @@
+{
+  "model": "generic_correctness_coded_HDDM",
+  "group_level": {
+    "a_mean": 1.7353384606747206,
+    "a_post_sd": 0.3243056430182711,
+    "v_mean": 5.053662367190514,
+    "v_post_sd": 0.5520017987236777,
+    "t_mean": 0.21920313924194526,
+    "t_post_sd": 0.007009288776644805
+  },
+  "between_subj_sd_posterior": {
+    "a_std": 1.0096243353613736,
+    "v_std": 1.5881827880832702,
+    "t_std": 0.008071224062629834
+  },
+  "empirical_subj_var": {
+    "a_sd": 0.8623119631610571,
+    "v_sd": 1.3421055949907903,
+    "t_sd": 0.00338566985099303
+  },
+  "empirical_means": {
+    "a": 1.6864529753488042,
+    "v": 5.13788115931057,
+    "t": 0.21908857344879218
+  },
+  "observed_behavior": {
+    "accuracy": 0.9525,
+    "mean_rt_ms": 370.77327125,
+    "n_subjects": 10,
+    "n_trials_total": 800
+  }
+}
